@@ -37,7 +37,6 @@
 #import "Firestore/Protos/objc/google/type/Latlng.pbobjc.h"
 #import "Firestore/Source/API/FIRFieldValue+Internal.h"
 #import "Firestore/Source/Core/FSTQuery.h"
-#import "Firestore/Source/Core/FSTSnapshotVersion.h"
 #import "Firestore/Source/Local/FSTQueryData.h"
 #import "Firestore/Source/Model/FSTDocument.h"
 #import "Firestore/Source/Model/FSTDocumentKey.h"
@@ -58,10 +57,12 @@
 
 namespace testutil = firebase::firestore::testutil;
 namespace util = firebase::firestore::util;
+using firebase::Timestamp;
 using firebase::firestore::model::DatabaseId;
 using firebase::firestore::model::FieldMask;
 using firebase::firestore::model::FieldTransform;
 using firebase::firestore::model::Precondition;
+using firebase::firestore::model::SnapshotVersion;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -424,8 +425,7 @@ NS_ASSUME_NONNULL_BEGIN
                              precondition:Precondition::UpdateTime(testutil::Version(4))];
   GCFSWrite *proto = [GCFSWrite message];
   proto.update = [self.serializer encodedDocumentWithFields:mutation.value key:mutation.key];
-  proto.currentDocument.updateTime =
-      [self.serializer encodedTimestamp:[[FIRTimestamp alloc] initWithSeconds:0 nanoseconds:4000]];
+  proto.currentDocument.updateTime = [self.serializer encodedTimestamp:Timestamp{0, 4000}];
 
   [self assertRoundTripForMutation:mutation proto:proto];
 }
@@ -708,7 +708,7 @@ NS_ASSUME_NONNULL_BEGIN
                                                    targetID:1
                                        listenSequenceNumber:0
                                                     purpose:FSTQueryPurposeListen
-                                            snapshotVersion:[FSTSnapshotVersion noVersion]
+                                            snapshotVersion:SnapshotVersion::None()
                                                 resumeToken:FSTTestData(1, 2, 3, -1)];
 
   GCFSTarget *expected = [GCFSTarget message];
@@ -729,7 +729,7 @@ NS_ASSUME_NONNULL_BEGIN
                                     targetID:1
                         listenSequenceNumber:0
                                      purpose:FSTQueryPurposeListen
-                             snapshotVersion:[FSTSnapshotVersion noVersion]
+                             snapshotVersion:SnapshotVersion::None()
                                  resumeToken:[NSData data]];
 }
 

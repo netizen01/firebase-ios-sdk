@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *      http://www.apache.org/licenses/LICENSE2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -14,12 +14,16 @@
  * limitations under the License.
  */
 
-// Firebase Analytics umbrella header for interoperating with open source builds
-// More details at https://github.com/firebase/firebase-ios-sdk#source-pod-integration
+#import "FIRAuthSettings.h"
 
-#import "FIRAnalytics+AppDelegate.h"
-#import "FIRAnalytics.h"
-#import "FIRAnalyticsSwiftNameSupport.h"
-#import "FIREventNames.h"
-#import "FIRParameterNames.h"
-#import "FIRUserPropertyNames.h"
+@implementation FIRAuthSettings
+
+- (instancetype)init {
+  self = [super init];
+  if (self) {
+    _appVerificationDisabledForTesting = NO;
+  }
+  return self;
+}
+
+@end

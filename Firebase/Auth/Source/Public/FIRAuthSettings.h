@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Google
+ * Copyright 2018 Google
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,25 +16,15 @@
 
 #import <Foundation/Foundation.h>
 
-#import "Firestore/third_party/Immutable/FSTImmutableSortedDictionary.h"
-
-@class FSTDocumentKey;
-@class FSTSnapshotVersion;
-
-NS_ASSUME_NONNULL_BEGIN
-
-/** A map of key to version number. */
-typedef FSTImmutableSortedDictionary<FSTDocumentKey *, FSTSnapshotVersion *>
-    FSTDocumentVersionDictionary;
-
-/**
- * Extension to FSTImmutableSortedDictionary that allows natural construction of
- * FSTDocumentVersionDictionary.
+/** @class FIRAuthSettings
+    @brief Determines settings related to an auth object.
  */
-@interface FSTImmutableSortedDictionary (FSTDocumentVersionDictionary)
+@interface FIRAuthSettings : NSObject
 
-+ (instancetype)documentVersionDictionary;
+/** @property appVerificationDisabledForTesting
+    @brief Flag to determine whether app verification should be disabled for testing or not.
+ */
+@property (nonatomic, assign, getter=isAppVerificationDisabledForTesting) BOOL
+    appVerificationDisabledForTesting;
 
 @end
-
-NS_ASSUME_NONNULL_END

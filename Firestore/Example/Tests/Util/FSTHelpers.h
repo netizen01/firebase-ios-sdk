@@ -21,7 +21,6 @@
 
 #import "Firestore/Source/Core/FSTTypes.h"
 #import "Firestore/Source/Model/FSTDocumentDictionary.h"
-#import "Firestore/Source/Model/FSTDocumentKeySet.h"
 
 #include "Firestore/core/src/firebase/firestore/model/field_path.h"
 #include "Firestore/core/src/firebase/firestore/model/field_value.h"
@@ -40,7 +39,6 @@
 @class FSTQuery;
 @class FSTRemoteEvent;
 @class FSTSetMutation;
-@class FSTSnapshotVersion;
 @class FSTSortOrder;
 @class FSTTargetChange;
 @class FIRTimestamp;
@@ -182,14 +180,8 @@ FSTObjectValue *FSTTestObjectValue(NSDictionary<NSString *, id> *data);
 /** A convenience method for creating document keys for tests. */
 FSTDocumentKey *FSTTestDocKey(NSString *path);
 
-/** A convenience method for creating a document key set for tests. */
-FSTDocumentKeySet *FSTTestDocKeySet(NSArray<FSTDocumentKey *> *keys);
-
 /** Allow tests to just use an int literal for versions. */
 typedef int64_t FSTTestSnapshotVersion;
-
-/** A convenience method for creating snapshot versions for tests. */
-FSTSnapshotVersion *FSTTestVersion(FSTTestSnapshotVersion version);
 
 /** A convenience method for creating docs for tests. */
 FSTDocument *FSTTestDoc(const absl::string_view path,

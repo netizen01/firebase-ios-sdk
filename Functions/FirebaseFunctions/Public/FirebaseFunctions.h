@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Google
+ * Copyright 2018 Google
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,18 +14,6 @@
  * limitations under the License.
  */
 
-#import "Firestore/Source/Model/FSTDocumentKeySet.h"
-
-#import "Firestore/Source/Model/FSTDocumentKey.h"
-
-NS_ASSUME_NONNULL_BEGIN
-
-@implementation FSTImmutableSortedSet (FSTDocumentKey)
-
-+ (instancetype)keySet {
-  return [FSTDocumentKeySet setWithComparator:FSTDocumentKeyComparator];
-}
-
-@end
-
-NS_ASSUME_NONNULL_END
+#import "FIRError.h"
+#import "FIRFunctions.h"
+#import "FIRHTTPSCallable.h"

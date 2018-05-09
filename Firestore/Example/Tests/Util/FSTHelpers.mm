@@ -29,7 +29,6 @@
 #import "Firestore/Source/API/FIRFieldPath+Internal.h"
 #import "Firestore/Source/API/FSTUserDataConverter.h"
 #import "Firestore/Source/Core/FSTQuery.h"
-#import "Firestore/Source/Core/FSTSnapshotVersion.h"
 #import "Firestore/Source/Core/FSTView.h"
 #import "Firestore/Source/Core/FSTViewSnapshot.h"
 #import "Firestore/Source/Local/FSTLocalViewChanges.h"
@@ -45,6 +44,7 @@
 
 #include "Firestore/core/src/firebase/firestore/model/database_id.h"
 #include "Firestore/core/src/firebase/firestore/model/document_key.h"
+#include "Firestore/core/src/firebase/firestore/model/document_key_set.h"
 #include "Firestore/core/src/firebase/firestore/model/field_mask.h"
 #include "Firestore/core/src/firebase/firestore/model/field_transform.h"
 #include "Firestore/core/src/firebase/firestore/model/field_value.h"
@@ -67,14 +67,12 @@ using firebase::firestore::model::Precondition;
 using firebase::firestore::model::ResourcePath;
 using firebase::firestore::model::ServerTimestampTransform;
 using firebase::firestore::model::TransformOperation;
+using firebase::firestore::model::DocumentKeySet;
 
 NS_ASSUME_NONNULL_BEGIN
 
 /** A string sentinel that can be used with FSTTestPatchMutation() to mark a field for deletion. */
 static NSString *const kDeleteSentinel = @"<DELETE>";
-
-static const int kMicrosPerSec = 1000000;
-static const int kMillisPerSec = 1000;
 
 FIRTimestamp *FSTTestTimestamp(int year, int month, int day, int hour, int minute, int second) {
   NSDate *date = FSTTestDate(year, month, day, hour, minute, second);
@@ -150,22 +148,6 @@ FSTDocumentKey *FSTTestDocKey(NSString *path) {
   return [FSTDocumentKey keyWithPathString:path];
 }
 
-FSTDocumentKeySet *FSTTestDocKeySet(NSArray<FSTDocumentKey *> *keys) {
-  FSTDocumentKeySet *result = [FSTDocumentKeySet keySet];
-  for (FSTDocumentKey *key in keys) {
-    result = [result setByAddingObject:key];
-  }
-  return result;
-}
-
-FSTSnapshotVersion *FSTTestVersion(FSTTestSnapshotVersion versionMicroseconds) {
-  int64_t seconds = versionMicroseconds / kMicrosPerSec;
-  int32_t nanos = (int32_t)(versionMicroseconds % kMicrosPerSec) * kMillisPerSec;
-
-  FIRTimestamp *timestamp = [[FIRTimestamp alloc] initWithSeconds:seconds nanoseconds:nanos];
-  return [FSTSnapshotVersion versionWithTimestamp:timestamp];
-}
-
 FSTDocument *FSTTestDoc(const absl::string_view path,
                         FSTTestSnapshotVersion version,
                         NSDictionary<NSString *, id> *data,
@@ -173,14 +155,14 @@ FSTDocument *FSTTestDoc(const absl::string_view path,
   DocumentKey key = testutil::Key(path);
   return [FSTDocument documentWithData:FSTTestObjectValue(data)
                                    key:key
-                               version:FSTTestVersion(version)
+                               version:testutil::Version(version)
                      hasLocalMutations:hasMutations];
 }
 
 FSTDeletedDocument *FSTTestDeletedDoc(const absl::string_view path,
                                       FSTTestSnapshotVersion version) {
   DocumentKey key = testutil::Key(path);
-  return [FSTDeletedDocument documentWithKey:key version:FSTTestVersion(version)];
+  return [FSTDeletedDocument documentWithKey:key version:testutil::Version(version)];
 }
 
 FSTDocumentKeyReference *FSTTestRef(const absl::string_view projectID,
@@ -355,17 +337,17 @@ NSData *_Nullable FSTTestResumeTokenFromSnapshotVersion(FSTTestSnapshotVersion s
 FSTLocalViewChanges *FSTTestViewChanges(FSTQuery *query,
                                         NSArray<NSString *> *addedKeys,
                                         NSArray<NSString *> *removedKeys) {
-  FSTDocumentKeySet *added = [FSTDocumentKeySet keySet];
+  DocumentKeySet added;
   for (NSString *keyPath in addedKeys) {
-    FSTDocumentKey *key = FSTTestDocKey(keyPath);
-    added = [added setByAddingObject:key];
+    added = added.insert(testutil::Key(util::MakeStringView(keyPath)));
   }
-  FSTDocumentKeySet *removed = [FSTDocumentKeySet keySet];
+  DocumentKeySet removed;
   for (NSString *keyPath in removedKeys) {
-    FSTDocumentKey *key = FSTTestDocKey(keyPath);
-    removed = [removed setByAddingObject:key];
+    removed = removed.insert(testutil::Key(util::MakeStringView(keyPath)));
   }
-  return [FSTLocalViewChanges changesForQuery:query addedKeys:added removedKeys:removed];
+  return [FSTLocalViewChanges changesForQuery:query
+                                    addedKeys:std::move(added)
+                                  removedKeys:std::move(removed)];
 }
 
 NS_ASSUME_NONNULL_END

@@ -19,13 +19,17 @@
 
 #include <cstdint>
 #include <cstdlib>
+#include <string>
 #include <vector>
 
-#include "Firestore/Protos/nanopb/google/firestore/v1beta1/document.pb.h"
+#include "Firestore/core/src/firebase/firestore/model/database_id.h"
+#include "Firestore/core/src/firebase/firestore/model/document_key.h"
 #include "Firestore/core/src/firebase/firestore/model/field_value.h"
 #include "Firestore/core/src/firebase/firestore/util/firebase_assert.h"
 #include "Firestore/core/src/firebase/firestore/util/status.h"
+#include "Firestore/core/src/firebase/firestore/util/statusor.h"
 #include "absl/base/attributes.h"
+#include "absl/strings/string_view.h"
 
 namespace firebase {
 namespace firestore {
@@ -46,20 +50,13 @@ namespace remote {
 // interpret." Adjust for C++.
 class Serializer {
  public:
-  Serializer() {
+  /**
+   * @param database_id Must remain valid for the lifetime of this Serializer
+   * object.
+   */
+  explicit Serializer(const firebase::firestore::model::DatabaseId& database_id)
+      : database_id_(database_id) {
   }
-  // TODO(rsgowman): We eventually need the DatabaseId, but can't add it just
-  // yet since it's not used yet (which travis complains about). So for now,
-  // we'll create a parameterless ctor (above) that likely won't exist in the
-  // final version of this class.
-  ///**
-  // * @param database_id Must remain valid for the lifetime of this Serializer
-  // * object.
-  // */
-  // explicit Serializer(const firebase::firestore::model::DatabaseId&
-  // database_id)
-  //    : database_id_(database_id) {
-  //}
 
   /**
    * Converts the FieldValue model passed into bytes.
@@ -67,8 +64,9 @@ class Serializer {
    * @param field_value the model to convert.
    * @param[out] out_bytes A buffer to place the output. The bytes will be
    * appended to this vector.
+   * @return A Status, which if not ok(), indicates what went wrong. Note that
+   * errors during encoding generally indicate a serious/fatal error.
    */
-  // TODO(rsgowman): error handling, incl return code.
   // TODO(rsgowman): If we never support any output except to a vector, it may
   // make sense to have Serializer own the vector and provide an accessor rather
   // than asking the user to create it first.
@@ -81,26 +79,40 @@ class Serializer {
    *
    * @param bytes The bytes to convert. It's assumed that exactly all of the
    * bytes will be used by this conversion.
-   * @return The model equivalent of the bytes.
+   * @return The model equivalent of the bytes or a Status indicating
+   * what went wrong.
    */
-  // TODO(rsgowman): error handling.
-  model::FieldValue DecodeFieldValue(const uint8_t* bytes, size_t length);
+  util::StatusOr<model::FieldValue> DecodeFieldValue(const uint8_t* bytes,
+                                                     size_t length);
 
   /**
    * @brief Converts from bytes to the model FieldValue format.
    *
    * @param bytes The bytes to convert. It's assumed that exactly all of the
    * bytes will be used by this conversion.
-   * @return The model equivalent of the bytes.
+   * @return The model equivalent of the bytes or a Status indicating
+   * what went wrong.
    */
-  // TODO(rsgowman): error handling.
-  model::FieldValue DecodeFieldValue(const std::vector<uint8_t>& bytes) {
+  util::StatusOr<model::FieldValue> DecodeFieldValue(
+      const std::vector<uint8_t>& bytes) {
     return DecodeFieldValue(bytes.data(), bytes.size());
   }
 
+  /**
+   * Encodes the given document key as a fully qualified name. This includes the
+   * databaseId associated with this Serializer and the key path.
+   */
+  std::string EncodeKey(
+      const firebase::firestore::model::DocumentKey& key) const;
+
+  /**
+   * Decodes the given document key from a fully qualified name.
+   */
+  firebase::firestore::model::DocumentKey DecodeKey(
+      absl::string_view name) const;
+
  private:
-  // TODO(rsgowman): We don't need the database_id_ yet (but will eventually).
-  // model::DatabaseId* database_id_;
+  const firebase::firestore::model::DatabaseId& database_id_;
 };
 
 }  // namespace remote

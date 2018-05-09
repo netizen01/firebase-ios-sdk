@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Google
+ * Copyright 2018 Google
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,22 +14,21 @@
  * limitations under the License.
  */
 
-#import <Foundation/Foundation.h>
+#ifndef FIRESTORE_CORE_SRC_FIREBASE_FIRESTORE_MODEL_DOCUMENT_KEY_SET_H_
+#define FIRESTORE_CORE_SRC_FIREBASE_FIRESTORE_MODEL_DOCUMENT_KEY_SET_H_
 
-#import "Firestore/third_party/Immutable/FSTImmutableSortedSet.h"
+#include "Firestore/core/src/firebase/firestore/immutable/sorted_set.h"
+#include "Firestore/core/src/firebase/firestore/model/document_key.h"
 
-@class FSTDocumentKey;
-
-NS_ASSUME_NONNULL_BEGIN
+namespace firebase {
+namespace firestore {
+namespace model {
 
 /** Convenience type for a set of keys, since they are so common. */
-typedef FSTImmutableSortedSet<FSTDocumentKey *> FSTDocumentKeySet;
+using DocumentKeySet = immutable::SortedSet<DocumentKey>;
 
-@interface FSTImmutableSortedSet (FSTDocumentKey)
+}  // namespace model
+}  // namespace firestore
+}  // namespace firebase
 
-/** Returns a new set using the DocumentKeyComparator. */
-+ (FSTDocumentKeySet *)keySet;
-
-@end
-
-NS_ASSUME_NONNULL_END
+#endif  // FIRESTORE_CORE_SRC_FIREBASE_FIRESTORE_MODEL_DOCUMENT_KEY_SET_H_
