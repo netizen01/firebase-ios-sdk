@@ -31,13 +31,13 @@
 - (void)testCanUpdateAnExistingDocument {
   FIRDocumentReference *doc = [self.db documentWithPath:@"rooms/eros"];
   NSDictionary<NSString *, id> *initialData =
-      @{ @"desc" : @"Description",
-         @"owner" : @{@"name" : @"Jonny", @"email" : @"abc@xyz.com"} };
+      @{@"desc" : @"Description",
+        @"owner" : @{@"name" : @"Jonny", @"email" : @"abc@xyz.com"}};
   NSDictionary<NSString *, id> *updateData =
       @{@"desc" : @"NewDescription", @"owner.email" : @"new@xyz.com"};
   NSDictionary<NSString *, id> *finalData =
-      @{ @"desc" : @"NewDescription",
-         @"owner" : @{@"name" : @"Jonny", @"email" : @"new@xyz.com"} };
+      @{@"desc" : @"NewDescription",
+        @"owner" : @{@"name" : @"Jonny", @"email" : @"new@xyz.com"}};
 
   [self writeDocumentRef:doc data:initialData];
 
@@ -57,13 +57,13 @@
 - (void)testCanDeleteAFieldWithAnUpdate {
   FIRDocumentReference *doc = [self.db documentWithPath:@"rooms/eros"];
   NSDictionary<NSString *, id> *initialData =
-      @{ @"desc" : @"Description",
-         @"owner" : @{@"name" : @"Jonny", @"email" : @"abc@xyz.com"} };
+      @{@"desc" : @"Description",
+        @"owner" : @{@"name" : @"Jonny", @"email" : @"abc@xyz.com"}};
   NSDictionary<NSString *, id> *updateData =
       @{@"owner.email" : [FIRFieldValue fieldValueForDelete]};
   NSDictionary<NSString *, id> *finalData =
-      @{ @"desc" : @"Description",
-         @"owner" : @{@"name" : @"Jonny"} };
+      @{@"desc" : @"Description",
+        @"owner" : @{@"name" : @"Jonny"}};
 
   [self writeDocumentRef:doc data:initialData];
   [self updateDocumentRef:doc data:updateData];
@@ -111,8 +111,8 @@
   FIRDocumentReference *doc = [[self.db collectionWithPath:@"rooms"] documentWithAutoID];
 
   NSDictionary<NSString *, id> *initialData =
-      @{ @"desc" : @"Description",
-         @"owner" : @{@"name" : @"Jonny", @"email" : @"abc@xyz.com"} };
+      @{@"desc" : @"Description",
+        @"owner" : @{@"name" : @"Jonny", @"email" : @"abc@xyz.com"}};
   NSDictionary<NSString *, id> *udpateData = @{@"desc" : @"NewDescription"};
 
   [self writeDocumentRef:doc data:initialData];
@@ -125,13 +125,12 @@
 - (void)testCanMergeDataWithAnExistingDocumentUsingSet {
   FIRDocumentReference *doc = [[self.db collectionWithPath:@"rooms"] documentWithAutoID];
 
-  NSDictionary<NSString *, id> *initialData = @{
-    @"desc" : @"Description",
-    @"owner.data" : @{@"name" : @"Jonny", @"email" : @"abc@xyz.com"}
-  };
+  NSDictionary<NSString *, id> *initialData =
+      @{@"desc" : @"Description",
+        @"owner.data" : @{@"name" : @"Jonny", @"email" : @"abc@xyz.com"}};
   NSDictionary<NSString *, id> *mergeData =
-      @{ @"updated" : @YES,
-         @"owner.data" : @{@"name" : @"Sebastian"} };
+      @{@"updated" : @YES,
+        @"owner.data" : @{@"name" : @"Sebastian"}};
   NSDictionary<NSString *, id> *finalData = @{
     @"desc" : @"Description",
     @"updated" : @YES,
@@ -162,8 +161,10 @@
   NSDictionary<NSString *, id> *initialData = @{
     @"updated" : @NO,
   };
-  NSDictionary<NSString *, id> *mergeData =
-      @{@"time" : [FIRFieldValue fieldValueForServerTimestamp]};
+  NSDictionary<NSString *, id> *mergeData = @{
+    @"time" : [FIRFieldValue fieldValueForServerTimestamp],
+    @"nested" : @{@"time" : [FIRFieldValue fieldValueForServerTimestamp]}
+  };
 
   [self writeDocumentRef:doc data:initialData];
 
@@ -182,16 +183,16 @@
   FIRDocumentSnapshot *document = [self readDocumentForRef:doc];
   XCTAssertEqual(document[@"updated"], @NO);
   XCTAssertTrue([document[@"time"] isKindOfClass:[FIRTimestamp class]]);
+  XCTAssertTrue([document[@"nested.time"] isKindOfClass:[FIRTimestamp class]]);
 }
 
 - (void)testCanDeleteFieldUsingMerge {
   FIRDocumentReference *doc = [[self.db collectionWithPath:@"rooms"] documentWithAutoID];
 
-  NSDictionary<NSString *, id> *initialData = @{
-    @"untouched" : @YES,
-    @"foo" : @"bar",
-    @"nested" : @{@"untouched" : @YES, @"foo" : @"bar"}
-  };
+  NSDictionary<NSString *, id> *initialData =
+      @{@"untouched" : @YES,
+        @"foo" : @"bar",
+        @"nested" : @{@"untouched" : @YES, @"foo" : @"bar"}};
   NSDictionary<NSString *, id> *mergeData = @{
     @"foo" : [FIRFieldValue fieldValueForDelete],
     @"nested" : @{@"foo" : [FIRFieldValue fieldValueForDelete]}
@@ -218,6 +219,80 @@
   XCTAssertNil(document[@"nested.foo"]);
 }
 
+- (void)testCanDeleteFieldUsingMergeFields {
+  FIRDocumentReference *doc = [[self.db collectionWithPath:@"rooms"] documentWithAutoID];
+
+  NSDictionary<NSString *, id> *initialData = @{
+    @"untouched" : @YES,
+    @"foo" : @"bar",
+    @"inner" : @{@"removed" : @YES, @"foo" : @"bar"},
+    @"nested" : @{@"untouched" : @YES, @"foo" : @"bar"}
+  };
+  NSDictionary<NSString *, id> *mergeData = @{
+    @"foo" : [FIRFieldValue fieldValueForDelete],
+    @"inner" : @{@"foo" : [FIRFieldValue fieldValueForDelete]},
+    @"nested" : @{
+      @"untouched" : [FIRFieldValue fieldValueForDelete],
+      @"foo" : [FIRFieldValue fieldValueForDelete]
+    }
+  };
+  NSDictionary<NSString *, id> *finalData =
+      @{@"untouched" : @YES,
+        @"inner" : @{},
+        @"nested" : @{@"untouched" : @YES}};
+
+  [self writeDocumentRef:doc data:initialData];
+
+  XCTestExpectation *completed =
+      [self expectationWithDescription:@"testCanMergeDataWithAnExistingDocumentUsingSet"];
+
+  [doc setData:mergeData
+      mergeFields:@[ @"foo", @"inner", @"nested.foo" ]
+       completion:^(NSError *error) {
+         XCTAssertNil(error);
+         [completed fulfill];
+       }];
+
+  [self awaitExpectations];
+
+  FIRDocumentSnapshot *document = [self readDocumentForRef:doc];
+  XCTAssertEqualObjects([document data], finalData);
+}
+
+- (void)testCanSetServerTimestampsUsingMergeFields {
+  FIRDocumentReference *doc = [[self.db collectionWithPath:@"rooms"] documentWithAutoID];
+
+  NSDictionary<NSString *, id> *initialData =
+      @{@"untouched" : @YES,
+        @"foo" : @"bar",
+        @"nested" : @{@"untouched" : @YES, @"foo" : @"bar"}};
+  NSDictionary<NSString *, id> *mergeData = @{
+    @"foo" : [FIRFieldValue fieldValueForServerTimestamp],
+    @"inner" : @{@"foo" : [FIRFieldValue fieldValueForServerTimestamp]},
+    @"nested" : @{@"foo" : [FIRFieldValue fieldValueForServerTimestamp]}
+  };
+
+  [self writeDocumentRef:doc data:initialData];
+
+  XCTestExpectation *completed =
+      [self expectationWithDescription:@"testCanMergeDataWithAnExistingDocumentUsingSet"];
+
+  [doc setData:mergeData
+      mergeFields:@[ @"foo", @"inner", @"nested.foo" ]
+       completion:^(NSError *error) {
+         XCTAssertNil(error);
+         [completed fulfill];
+       }];
+
+  [self awaitExpectations];
+
+  FIRDocumentSnapshot *document = [self readDocumentForRef:doc];
+  XCTAssertTrue([document exists]);
+  XCTAssertTrue([document[@"foo"] isKindOfClass:[FIRTimestamp class]]);
+  XCTAssertTrue([document[@"inner.foo"] isKindOfClass:[FIRTimestamp class]]);
+  XCTAssertTrue([document[@"nested.foo"] isKindOfClass:[FIRTimestamp class]]);
+}
+
 - (void)testMergeReplacesArrays {
   FIRDocumentReference *doc = [[self.db collectionWithPath:@"rooms"] documentWithAutoID];
 
@@ -228,9 +303,9 @@
     @"mapInArray" : @[ @{@"data" : @"old"} ]
   };
   NSDictionary<NSString *, id> *mergeData =
-      @{ @"data" : @"new",
-         @"topLevel" : @[ @"new" ],
-         @"mapInArray" : @[ @{@"data" : @"new"} ] };
+      @{@"data" : @"new",
+        @"topLevel" : @[ @"new" ],
+        @"mapInArray" : @[ @{@"data" : @"new"} ]};
   NSDictionary<NSString *, id> *finalData = @{
     @"untouched" : @YES,
     @"data" : @"new",
@@ -268,8 +343,8 @@
   FIRDocumentReference *doc = [[self.db collectionWithPath:@"rooms"] documentWithAutoID];
 
   NSDictionary<NSString *, id> *initialData =
-      @{ @"desc" : @"Description",
-         @"owner" : @{@"name" : @"Jonny", @"email" : @"abc@xyz.com"} };
+      @{@"desc" : @"Description",
+        @"owner" : @{@"name" : @"Jonny", @"email" : @"abc@xyz.com"}};
 
   NSDictionary<NSString *, id> *finalData = @{@"desc" : @"Description", @"owner" : @"Sebastian"};
 
@@ -295,8 +370,8 @@
   FIRDocumentReference *doc = [[self.db collectionWithPath:@"rooms"] documentWithAutoID];
 
   NSDictionary<NSString *, id> *initialData =
-      @{ @"desc" : @"Description",
-         @"owner" : @{@"name" : @"Jonny", @"email" : @"abc@xyz.com"} };
+      @{@"desc" : @"Description",
+        @"owner" : @{@"name" : @"Jonny", @"email" : @"abc@xyz.com"}};
 
   NSDictionary<NSString *, id> *finalData = @{@"desc" : @"Description", @"owner" : @"Sebastian"};
 
@@ -322,8 +397,8 @@
   FIRDocumentReference *doc = [[self.db collectionWithPath:@"rooms"] documentWithAutoID];
 
   NSDictionary<NSString *, id> *initialData =
-      @{ @"desc" : @"Description",
-         @"owner" : @{@"name" : @"Jonny", @"email" : @"abc@xyz.com"} };
+      @{@"desc" : @"Description",
+        @"owner" : @{@"name" : @"Jonny", @"email" : @"abc@xyz.com"}};
 
   NSDictionary<NSString *, id> *finalData = @{@"desc" : @"Description", @"owner" : @"Sebastian"};
 
@@ -349,8 +424,8 @@
   FIRDocumentReference *doc = [[self.db collectionWithPath:@"rooms"] documentWithAutoID];
 
   NSDictionary<NSString *, id> *initialData =
-      @{ @"desc" : @"Description",
-         @"owner" : @{@"name" : @"Jonny", @"email" : @"abc@xyz.com"} };
+      @{@"desc" : @"Description",
+        @"owner" : @{@"name" : @"Jonny", @"email" : @"abc@xyz.com"}};
 
   NSDictionary<NSString *, id> *finalData = initialData;
 
@@ -376,13 +451,12 @@
   FIRDocumentReference *doc = [[self.db collectionWithPath:@"rooms"] documentWithAutoID];
 
   NSDictionary<NSString *, id> *initialData =
-      @{ @"desc" : @"Description",
-         @"owner" : @{@"name" : @"Jonny", @"email" : @"abc@xyz.com"} };
+      @{@"desc" : @"Description",
+        @"owner" : @{@"name" : @"Jonny", @"email" : @"abc@xyz.com"}};
 
-  NSDictionary<NSString *, id> *finalData = @{
-    @"desc" : @"Description",
-    @"owner" : @{@"name" : @"Sebastian", @"email" : @"new@xyz.com"}
-  };
+  NSDictionary<NSString *, id> *finalData =
+      @{@"desc" : @"Description",
+        @"owner" : @{@"name" : @"Sebastian", @"email" : @"new@xyz.com"}};
 
   [self writeDocumentRef:doc data:initialData];
 
@@ -407,13 +481,13 @@
 
 - (void)testAddingToACollectionYieldsTheCorrectDocumentReference {
   FIRCollectionReference *coll = [self.db collectionWithPath:@"collection"];
-  FIRDocumentReference *ref = [coll addDocumentWithData:@{ @"foo" : @1 }];
+  FIRDocumentReference *ref = [coll addDocumentWithData:@{@"foo" : @1}];
 
   XCTestExpectation *getCompletion = [self expectationWithDescription:@"getData"];
   [ref getDocumentWithCompletion:^(FIRDocumentSnapshot *_Nullable document,
                                    NSError *_Nullable error) {
     XCTAssertNil(error);
-    XCTAssertEqualObjects(document.data, (@{ @"foo" : @1 }));
+    XCTAssertEqualObjects(document.data, (@{@"foo" : @1}));
 
     [getCompletion fulfill];
   }];
@@ -494,7 +568,7 @@
           [emptyCompletion fulfill];
 
         } else if (callbacks == 2) {
-          XCTAssertEqualObjects(doc.data, (@{ @"a" : @1 }));
+          XCTAssertEqualObjects(doc.data, (@{@"a" : @1}));
           XCTAssertEqual(doc.metadata.hasPendingWrites, YES);
           [dataCompletion fulfill];
 
@@ -506,7 +580,7 @@
   [self awaitExpectations];
   dataCompletion = [self expectationWithDescription:@"data snapshot"];
 
-  [docRef setData:@{ @"a" : @1 }];
+  [docRef setData:@{@"a" : @1}];
   [self awaitExpectations];
 
   [listenerRegistration remove];
@@ -531,11 +605,11 @@
                                                [emptyCompletion fulfill];
 
                                              } else if (callbacks == 2) {
-                                               XCTAssertEqualObjects(doc.data, (@{ @"a" : @1 }));
+                                               XCTAssertEqualObjects(doc.data, (@{@"a" : @1}));
                                                XCTAssertEqual(doc.metadata.hasPendingWrites, YES);
 
                                              } else if (callbacks == 3) {
-                                               XCTAssertEqualObjects(doc.data, (@{ @"a" : @1 }));
+                                               XCTAssertEqualObjects(doc.data, (@{@"a" : @1}));
                                                XCTAssertEqual(doc.metadata.hasPendingWrites, NO);
                                                [dataCompletion fulfill];
 
@@ -547,7 +621,7 @@
   [self awaitExpectations];
   dataCompletion = [self expectationWithDescription:@"data snapshot"];
 
-  [docRef setData:@{ @"a" : @1 }];
+  [docRef setData:@{@"a" : @1}];
   [self awaitExpectations];
 
   [listenerRegistration remove];
@@ -556,8 +630,8 @@
 - (void)testDocumentSnapshotEvents_forChange {
   FIRDocumentReference *docRef = [[self.db collectionWithPath:@"rooms"] documentWithAutoID];
 
-  NSDictionary<NSString *, id> *initialData = @{ @"a" : @1 };
-  NSDictionary<NSString *, id> *changedData = @{ @"b" : @2 };
+  NSDictionary<NSString *, id> *initialData = @{@"a" : @1};
+  NSDictionary<NSString *, id> *changedData = @{@"b" : @2};
 
   [self writeDocumentRef:docRef data:initialData];
 
@@ -596,8 +670,8 @@
 - (void)testDocumentSnapshotEvents_forChangeIncludingMetadata {
   FIRDocumentReference *docRef = [[self.db collectionWithPath:@"rooms"] documentWithAutoID];
 
-  NSDictionary<NSString *, id> *initialData = @{ @"a" : @1 };
-  NSDictionary<NSString *, id> *changedData = @{ @"b" : @2 };
+  NSDictionary<NSString *, id> *initialData = @{@"a" : @1};
+  NSDictionary<NSString *, id> *changedData = @{@"b" : @2};
 
   [self writeDocumentRef:docRef data:initialData];
 
@@ -650,7 +724,7 @@
 - (void)testDocumentSnapshotEvents_forDelete {
   FIRDocumentReference *docRef = [[self.db collectionWithPath:@"rooms"] documentWithAutoID];
 
-  NSDictionary<NSString *, id> *initialData = @{ @"a" : @1 };
+  NSDictionary<NSString *, id> *initialData = @{@"a" : @1};
 
   [self writeDocumentRef:docRef data:initialData];
 
@@ -689,7 +763,7 @@
 - (void)testDocumentSnapshotEvents_forDeleteIncludingMetadata {
   FIRDocumentReference *docRef = [[self.db collectionWithPath:@"rooms"] documentWithAutoID];
 
-  NSDictionary<NSString *, id> *initialData = @{ @"a" : @1 };
+  NSDictionary<NSString *, id> *initialData = @{@"a" : @1};
 
   [self writeDocumentRef:docRef data:initialData];
 
@@ -738,7 +812,7 @@
   FIRCollectionReference *roomsRef = [self collectionRef];
   FIRDocumentReference *docRef = [roomsRef documentWithAutoID];
 
-  NSDictionary<NSString *, id> *newData = @{ @"a" : @1 };
+  NSDictionary<NSString *, id> *newData = @{@"a" : @1};
 
   XCTestExpectation *emptyCompletion = [self expectationWithDescription:@"empty snapshot"];
   __block XCTestExpectation *changeCompletion;
@@ -777,8 +851,8 @@
   FIRCollectionReference *roomsRef = [self collectionRef];
   FIRDocumentReference *docRef = [roomsRef documentWithAutoID];
 
-  NSDictionary<NSString *, id> *initialData = @{ @"a" : @1 };
-  NSDictionary<NSString *, id> *changedData = @{ @"b" : @2 };
+  NSDictionary<NSString *, id> *initialData = @{@"a" : @1};
+  NSDictionary<NSString *, id> *changedData = @{@"b" : @2};
 
   [self writeDocumentRef:docRef data:initialData];
 
@@ -820,7 +894,7 @@
   FIRCollectionReference *roomsRef = [self collectionRef];
   FIRDocumentReference *docRef = [roomsRef documentWithAutoID];
 
-  NSDictionary<NSString *, id> *initialData = @{ @"a" : @1 };
+  NSDictionary<NSString *, id> *initialData = @{@"a" : @1};
 
   [self writeDocumentRef:docRef data:initialData];
 
@@ -934,7 +1008,7 @@
 
   [self writeDocumentRef:doc data:@{@"a.b" : @"old", @"c.d" : @"old"}];
 
-  [self updateDocumentRef:doc data:@{ [[FIRFieldPath alloc] initWithFields:@[ @"a.b" ]] : @"new" }];
+  [self updateDocumentRef:doc data:@{[[FIRFieldPath alloc] initWithFields:@[ @"a.b" ]] : @"new"}];
 
   XCTestExpectation *expectation = [self expectationWithDescription:@"testUpdateFieldsWithDots"];
 

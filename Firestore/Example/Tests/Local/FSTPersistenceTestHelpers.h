@@ -16,6 +16,8 @@
 
 #import <Foundation/Foundation.h>
 
+#include "Firestore/core/src/firebase/firestore/util/path.h"
+
 @class FSTLevelDB;
 @class FSTMemoryPersistence;
 
@@ -27,7 +29,7 @@ NS_ASSUME_NONNULL_BEGIN
  * @return The directory where a leveldb instance can store data files. Any files that existed
  * there will be deleted first.
  */
-+ (NSString *)levelDBDir;
++ (firebase::firestore::util::Path)levelDBDir;
 
 /**
  * Creates and starts a new FSTLevelDB instance for testing, destroying any previous contents
@@ -39,8 +41,17 @@ NS_ASSUME_NONNULL_BEGIN
  */
 + (FSTLevelDB *)levelDBPersistence;
 
+/**
+ * Creates and starts a new FSTLevelDB instance for testing. Does not delete any data
+ * present in the given directory. As a consequence, the resulting databse is not guaranteed
+ * to be empty.
+ */
++ (FSTLevelDB *)levelDBPersistenceWithDir:(firebase::firestore::util::Path)dir;
+
 /** Creates and starts a new FSTMemoryPersistence instance for testing. */
-+ (FSTMemoryPersistence *)memoryPersistence;
++ (FSTMemoryPersistence *)eagerGCMemoryPersistence;
+
++ (FSTMemoryPersistence *)lruMemoryPersistence;
 @end
 
 NS_ASSUME_NONNULL_END

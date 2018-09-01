@@ -21,6 +21,9 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+extern NSString *const kEagerGC;
+extern NSString *const kDurablePersistence;
+
 /**
  * FSTSpecTests run a set of portable event specifications from JSON spec files against a
  * special isolated version of the Firestore client that allows precise control over when events
@@ -38,8 +41,11 @@ NS_ASSUME_NONNULL_BEGIN
  */
 @interface FSTSpecTests : XCTestCase
 
-/** Creates and returns an appropriate id<FSTPersistence> implementation. */
-- (id<FSTPersistence>)persistence;
+/** Based on its tags, determine whether the test case should run. */
+- (BOOL)shouldRunWithTags:(NSArray<NSString *> *)tags;
+
+/** Do any necessary setup for a single spec test */
+- (void)setUpForSpecWithConfig:(NSDictionary *)config;
 
 @end
 

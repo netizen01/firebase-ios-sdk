@@ -24,8 +24,6 @@
 
 #import "Firestore/Source/Core/FSTEventManager.h"
 #import "Firestore/Source/Core/FSTQuery.h"
-#import "Firestore/Source/Local/FSTEagerGarbageCollector.h"
-#import "Firestore/Source/Local/FSTNoOpGarbageCollector.h"
 #import "Firestore/Source/Local/FSTPersistence.h"
 #import "Firestore/Source/Local/FSTQueryData.h"
 #import "Firestore/Source/Model/FSTDocument.h"
@@ -34,10 +32,8 @@
 #import "Firestore/Source/Model/FSTMutation.h"
 #import "Firestore/Source/Remote/FSTExistenceFilter.h"
 #import "Firestore/Source/Remote/FSTWatchChange.h"
-#import "Firestore/Source/Util/FSTAssert.h"
 #import "Firestore/Source/Util/FSTClasses.h"
 #import "Firestore/Source/Util/FSTDispatchQueue.h"
-#import "Firestore/Source/Util/FSTLogger.h"
 
 #import "Firestore/Example/Tests/Remote/FSTWatchChange+Testing.h"
 #import "Firestore/Example/Tests/SpecTests/FSTSyncEngineTestDriver.h"
@@ -46,6 +42,8 @@
 #include "Firestore/core/src/firebase/firestore/auth/user.h"
 #include "Firestore/core/src/firebase/firestore/model/document_key.h"
 #include "Firestore/core/src/firebase/firestore/model/snapshot_version.h"
+#include "Firestore/core/src/firebase/firestore/util/hard_assert.h"
+#include "Firestore/core/src/firebase/firestore/util/log.h"
 #include "Firestore/core/src/firebase/firestore/util/string_apple.h"
 #include "Firestore/core/test/firebase/firestore/testutil/testutil.h"
 
@@ -58,6 +56,10 @@ using firebase::firestore::model::TargetId;
 
 NS_ASSUME_NONNULL_BEGIN
 
+// Whether to run the benchmark spec tests.
+// TODO(mrschmidt): Make this configurable via the tests schema.
+static BOOL kRunBenchmarkTests = NO;
+
 // Disables all other tests; useful for debugging. Multiple tests can have this tag and they'll all
 // be run (but all others won't).
 static NSString *const kExclusiveTag = @"exclusive";
@@ -66,42 +68,61 @@ static NSString *const kExclusiveTag = @"exclusive";
 // to temporarily diverge.
 static NSString *const kNoIOSTag = @"no-ios";
 
+// A tag for tests that exercise the multi-client behavior of the Web client. These tests are
+// ignored on iOS.
+static NSString *const kMultiClientTag = @"multi-client";
+
+// A tag for tests that is assigned to the perf tests in "perf_spec.json". These tests are only run
+// if `kRunBenchmarkTests` is set to 'YES'.
+static NSString *const kBenchmarkTag = @"benchmark";
+
+NSString *const kEagerGC = @"eager-gc";
+
+NSString *const kDurablePersistence = @"durable-persistence";
+
+static NSString *Describe(NSData *data) {
+  return [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+}
+
 @interface FSTSpecTests ()
 @property(nonatomic, strong) FSTSyncEngineTestDriver *driver;
 
-// Some config info for the currently running spec; used when restarting the driver (for doRestart).
-@property(nonatomic, assign) BOOL GCEnabled;
-@property(nonatomic, strong) id<FSTPersistence> driverPersistence;
 @end
 
-@implementation FSTSpecTests
+@implementation FSTSpecTests {
+  BOOL _gcEnabled;
+}
 
-- (id<FSTPersistence>)persistence {
+- (id<FSTPersistence>)persistenceWithGCEnabled:(BOOL)GCEnabled {
   @throw FSTAbstractMethodException();  // NOLINT
 }
 
+- (BOOL)shouldRunWithTags:(NSArray<NSString *> *)tags {
+  if ([tags containsObject:kNoIOSTag]) {
+    return NO;
+  } else if ([tags containsObject:kMultiClientTag]) {
+    return NO;
+  } else if (!kRunBenchmarkTests && [tags containsObject:kBenchmarkTag]) {
+    return NO;
+  }
+  return YES;
+}
+
 - (void)setUpForSpecWithConfig:(NSDictionary *)config {
-  // Store persistence / GCEnabled so we can re-use it in doRestart.
-  self.driverPersistence = [self persistence];
+  // Store GCEnabled so we can re-use it in doRestart.
   NSNumber *GCEnabled = config[@"useGarbageCollection"];
-  self.GCEnabled = [GCEnabled boolValue];
-  self.driver = [[FSTSyncEngineTestDriver alloc] initWithPersistence:self.driverPersistence
-                                                    garbageCollector:self.garbageCollector];
+  _gcEnabled = [GCEnabled boolValue];
+  NSNumber *numClients = config[@"numClients"];
+  if (numClients) {
+    XCTAssertEqualObjects(numClients, @1, @"The iOS client does not support multi-client tests");
+  }
+  id<FSTPersistence> persistence = [self persistenceWithGCEnabled:_gcEnabled];
+  self.driver = [[FSTSyncEngineTestDriver alloc] initWithPersistence:persistence];
   [self.driver start];
 }
 
 - (void)tearDownForSpec {
   [self.driver shutdown];
-  [self.driverPersistence shutdown];
-}
-
-/**
- * Creates the appropriate garbage collector for the test configuration: an eager collector if
- * GC is enabled or a no-op collector otherwise.
- */
-- (id<FSTGarbageCollector>)garbageCollector {
-  return self.GCEnabled ? [[FSTEagerGarbageCollector alloc] init]
-                        : [[FSTNoOpGarbageCollector alloc] init];
 }
 
 /**
@@ -116,11 +137,11 @@ static NSString *const kNoIOSTag = @"no-ios";
 
 - (nullable FSTQuery *)parseQuery:(id)querySpec {
   if ([querySpec isKindOfClass:[NSString class]]) {
-    return FSTTestQuery(util::MakeStringView((NSString *)querySpec));
+    return FSTTestQuery(util::MakeString((NSString *)querySpec));
   } else if ([querySpec isKindOfClass:[NSDictionary class]]) {
     NSDictionary *queryDict = (NSDictionary *)querySpec;
     NSString *path = queryDict[@"path"];
-    __block FSTQuery *query = FSTTestQuery(util::MakeStringView(path));
+    __block FSTQuery *query = FSTTestQuery(util::MakeString(path));
     if (queryDict[@"limit"]) {
       NSNumber *limit = queryDict[@"limit"];
       query = [query queryBySettingLimit:limit.integerValue];
@@ -129,16 +150,16 @@ static NSString *const kNoIOSTag = @"no-ios";
       NSArray *filters = queryDict[@"filters"];
       [filters enumerateObjectsUsingBlock:^(NSArray *_Nonnull filter, NSUInteger idx,
                                             BOOL *_Nonnull stop) {
-        query = [query queryByAddingFilter:FSTTestFilter(util::MakeStringView(filter[0]), filter[1],
-                                                         filter[2])];
+        query = [query
+            queryByAddingFilter:FSTTestFilter(util::MakeString(filter[0]), filter[1], filter[2])];
       }];
     }
     if (queryDict[@"orderBys"]) {
       NSArray *orderBys = queryDict[@"orderBys"];
       [orderBys enumerateObjectsUsingBlock:^(NSArray *_Nonnull orderBy, NSUInteger idx,
                                              BOOL *_Nonnull stop) {
-        query = [query
-            queryByAddingSortOrder:FSTTestOrderBy(util::MakeStringView(orderBy[0]), orderBy[1])];
+        query =
+            [query queryByAddingSortOrder:FSTTestOrderBy(util::MakeString(orderBy[0]), orderBy[1])];
       }];
     }
     return query;
@@ -161,7 +182,7 @@ static NSString *const kNoIOSTag = @"no-ios";
   }
   NSNumber *version = change[1];
   XCTAssert([change[0] isKindOfClass:[NSString class]]);
-  FSTDocument *doc = FSTTestDoc(util::MakeStringView((NSString *)change[0]), version.longLongValue,
+  FSTDocument *doc = FSTTestDoc(util::MakeString((NSString *)change[0]), version.longLongValue,
                                 change[2], hasMutations);
   return [FSTDocumentViewChange changeWithDocument:doc type:type];
 }
@@ -170,9 +191,9 @@ static NSString *const kNoIOSTag = @"no-ios";
 
 - (void)doListen:(NSArray *)listenSpec {
   FSTQuery *query = [self parseQuery:listenSpec[1]];
-  FSTTargetID actualID = [self.driver addUserListenerWithQuery:query];
+  TargetId actualID = [self.driver addUserListenerWithQuery:query];
 
-  FSTTargetID expectedID = [listenSpec[0] intValue];
+  TargetId expectedID = [listenSpec[0] intValue];
   XCTAssertEqual(actualID, expectedID, @"targetID assigned to listen");
 }
 
@@ -187,32 +208,32 @@ static NSString *const kNoIOSTag = @"no-ios";
 
 - (void)doPatch:(NSArray *)patchSpec {
   [self.driver
-      writeUserMutation:FSTTestPatchMutation(util::MakeStringView(patchSpec[0]), patchSpec[1], {})];
+      writeUserMutation:FSTTestPatchMutation(util::MakeString(patchSpec[0]), patchSpec[1], {})];
 }
 
 - (void)doDelete:(NSString *)key {
   [self.driver writeUserMutation:FSTTestDeleteMutation(key)];
 }
 
-- (void)doWatchAck:(NSArray<NSNumber *> *)ackedTargets snapshot:(NSNumber *)watchSnapshot {
+- (void)doWatchAck:(NSArray<NSNumber *> *)ackedTargets {
   FSTWatchTargetChange *change =
       [FSTWatchTargetChange changeWithState:FSTWatchTargetChangeStateAdded
                                   targetIDs:ackedTargets
                                       cause:nil];
-  [self.driver receiveWatchChange:change snapshotVersion:[self parseVersion:watchSnapshot]];
+  [self.driver receiveWatchChange:change snapshotVersion:SnapshotVersion::None()];
 }
 
-- (void)doWatchCurrent:(NSArray<id> *)currentSpec snapshot:(NSNumber *)watchSnapshot {
+- (void)doWatchCurrent:(NSArray<id> *)currentSpec {
   NSArray<NSNumber *> *currentTargets = currentSpec[0];
   NSData *resumeToken = [currentSpec[1] dataUsingEncoding:NSUTF8StringEncoding];
   FSTWatchTargetChange *change =
       [FSTWatchTargetChange changeWithState:FSTWatchTargetChangeStateCurrent
                                   targetIDs:currentTargets
                                 resumeToken:resumeToken];
-  [self.driver receiveWatchChange:change snapshotVersion:[self parseVersion:watchSnapshot]];
+  [self.driver receiveWatchChange:change snapshotVersion:SnapshotVersion::None()];
 }
 
-- (void)doWatchRemove:(NSDictionary *)watchRemoveSpec snapshot:(NSNumber *)watchSnapshot {
+- (void)doWatchRemove:(NSDictionary *)watchRemoveSpec {
   NSError *error = nil;
   NSDictionary *cause = watchRemoveSpec[@"cause"];
   if (cause) {
@@ -226,19 +247,16 @@ static NSString *const kNoIOSTag = @"no-ios";
       [FSTWatchTargetChange changeWithState:FSTWatchTargetChangeStateRemoved
                                   targetIDs:watchRemoveSpec[@"targetIds"]
                                       cause:error];
-  [self.driver receiveWatchChange:change snapshotVersion:[self parseVersion:watchSnapshot]];
+  [self.driver receiveWatchChange:change snapshotVersion:SnapshotVersion::None()];
   // Unlike web, the FSTMockDatastore detects a watch removal with cause and will remove active
   // targets
 }
 
-- (void)doWatchEntity:(NSDictionary *)watchEntity snapshot:(NSNumber *_Nullable)watchSnapshot {
+- (void)doWatchEntity:(NSDictionary *)watchEntity {
   if (watchEntity[@"docs"]) {
-    FSTAssert(!watchEntity[@"doc"], @"Exactly one of |doc| or |docs| needs to be set.");
-    int count = 0;
+    HARD_ASSERT(!watchEntity[@"doc"], "Exactly one of |doc| or |docs| needs to be set.");
     NSArray *docs = watchEntity[@"docs"];
     for (NSDictionary *doc in docs) {
-      count++;
-      bool isLast = (count == docs.count);
       NSMutableDictionary *watchSpec = [NSMutableDictionary dictionary];
       watchSpec[@"doc"] = doc;
       if (watchEntity[@"targets"]) {
@@ -247,27 +265,26 @@ static NSString *const kNoIOSTag = @"no-ios";
       if (watchEntity[@"removedTargets"]) {
         watchSpec[@"removedTargets"] = watchEntity[@"removedTargets"];
       }
-      NSNumber *_Nullable version = nil;
-      if (isLast) {
-        version = watchSnapshot;
-      }
-      [self doWatchEntity:watchSpec snapshot:version];
+      [self doWatchEntity:watchSpec];
     }
   } else if (watchEntity[@"doc"]) {
     NSArray *docSpec = watchEntity[@"doc"];
     FSTDocumentKey *key = FSTTestDocKey(docSpec[0]);
-    FSTObjectValue *value = FSTTestObjectValue(docSpec[2]);
+    FSTObjectValue *_Nullable value =
+        [docSpec[2] isKindOfClass:[NSNull class]] ? nil : FSTTestObjectValue(docSpec[2]);
     SnapshotVersion version = [self parseVersion:docSpec[1]];
-    FSTMaybeDocument *doc = [FSTDocument documentWithData:value
-                                                      key:key
-                                                  version:std::move(version)
-                                        hasLocalMutations:NO];
+    FSTMaybeDocument *doc =
+        value ? [FSTDocument documentWithData:value
+                                          key:key
+                                      version:std::move(version)
+                            hasLocalMutations:NO]
+              : [FSTDeletedDocument documentWithKey:key version:std::move(version)];
     FSTWatchChange *change =
         [[FSTDocumentWatchChange alloc] initWithUpdatedTargetIDs:watchEntity[@"targets"]
                                                 removedTargetIDs:watchEntity[@"removedTargets"]
                                                      documentKey:doc.key
                                                         document:doc];
-    [self.driver receiveWatchChange:change snapshotVersion:[self parseVersion:watchSnapshot]];
+    [self.driver receiveWatchChange:change snapshotVersion:SnapshotVersion::None()];
   } else if (watchEntity[@"key"]) {
     FSTDocumentKey *docKey = FSTTestDocKey(watchEntity[@"key"]);
     FSTWatchChange *change =
@@ -275,15 +292,15 @@ static NSString *const kNoIOSTag = @"no-ios";
                                                 removedTargetIDs:watchEntity[@"removedTargets"]
                                                      documentKey:docKey
                                                         document:nil];
-    [self.driver receiveWatchChange:change snapshotVersion:[self parseVersion:watchSnapshot]];
+    [self.driver receiveWatchChange:change snapshotVersion:SnapshotVersion::None()];
   } else {
-    FSTFail(@"Either key, doc or docs must be set.");
+    HARD_FAIL("Either key, doc or docs must be set.");
   }
 }
 
-- (void)doWatchFilter:(NSArray *)watchFilter snapshot:(NSNumber *_Nullable)watchSnapshot {
+- (void)doWatchFilter:(NSArray *)watchFilter {
   NSArray<NSNumber *> *targets = watchFilter[0];
-  FSTAssert(targets.count == 1, @"ExistenceFilters currently support exactly one target only.");
+  HARD_ASSERT(targets.count == 1, "ExistenceFilters currently support exactly one target only.");
 
   int keyCount = watchFilter.count == 0 ? 0 : (int)watchFilter.count - 1;
 
@@ -291,15 +308,29 @@ static NSString *const kNoIOSTag = @"no-ios";
   FSTExistenceFilter *filter = [FSTExistenceFilter filterWithCount:keyCount];
   FSTExistenceFilterWatchChange *change =
       [FSTExistenceFilterWatchChange changeWithFilter:filter targetID:targets[0].intValue];
-  [self.driver receiveWatchChange:change snapshotVersion:[self parseVersion:watchSnapshot]];
+  [self.driver receiveWatchChange:change snapshotVersion:SnapshotVersion::None()];
 }
 
-- (void)doWatchReset:(NSArray<NSNumber *> *)watchReset snapshot:(NSNumber *_Nullable)watchSnapshot {
+- (void)doWatchReset:(NSArray<NSNumber *> *)watchReset {
   FSTWatchTargetChange *change =
       [FSTWatchTargetChange changeWithState:FSTWatchTargetChangeStateReset
                                   targetIDs:watchReset
                                       cause:nil];
-  [self.driver receiveWatchChange:change snapshotVersion:[self parseVersion:watchSnapshot]];
+  [self.driver receiveWatchChange:change snapshotVersion:SnapshotVersion::None()];
+}
+
+- (void)doWatchSnapshot:(NSDictionary *)watchSnapshot {
+  // The client will only respond to watchSnapshots if they are on a target change with an empty
+  // set of target IDs.
+  NSArray<NSNumber *> *targetIDs =
+      watchSnapshot[@"targetIds"] ? watchSnapshot[@"targetIds"] : [NSArray array];
+  NSData *resumeToken = [watchSnapshot[@"resumeToken"] dataUsingEncoding:NSUTF8StringEncoding];
+  FSTWatchTargetChange *change =
+      [FSTWatchTargetChange changeWithState:FSTWatchTargetChangeStateNoChange
+                                  targetIDs:targetIDs
+                                resumeToken:resumeToken];
+  [self.driver receiveWatchChange:change
+                  snapshotVersion:[self parseVersion:watchSnapshot[@"version"]]];
 }
 
 - (void)doWatchStreamClose:(NSDictionary *)closeSpec {
@@ -308,39 +339,33 @@ static NSString *const kNoIOSTag = @"no-ios";
 
   NSNumber *runBackoffTimer = closeSpec[@"runBackoffTimer"];
   // TODO(b/72313632): Incorporate backoff in iOS Spec Tests.
-  FSTAssert(runBackoffTimer.boolValue, @"iOS Spec Tests don't support backoff.");
+  HARD_ASSERT(runBackoffTimer.boolValue, "iOS Spec Tests don't support backoff.");
 
   [self.driver receiveWatchStreamError:code userInfo:errorSpec];
 }
 
 - (void)doWriteAck:(NSDictionary *)spec {
   SnapshotVersion version = [self parseVersion:spec[@"version"]];
-  NSNumber *expectUserCallback = spec[@"expectUserCallback"];
+  NSNumber *keepInQueue = spec[@"keepInQueue"];
+  XCTAssertTrue(keepInQueue == nil || keepInQueue.boolValue == NO,
+                @"'keepInQueue=true' is not supported on iOS and should only be set in "
+                @"multi-client tests");
 
   FSTMutationResult *mutationResult =
       [[FSTMutationResult alloc] initWithVersion:version transformResults:nil];
-  FSTOutstandingWrite *write =
-      [self.driver receiveWriteAckWithVersion:version mutationResults:@[ mutationResult ]];
-
-  if (expectUserCallback.boolValue) {
-    FSTAssert(write.done, @"Write should be done");
-    FSTAssert(!write.error, @"Ack should not fail");
-  }
+  [self.driver receiveWriteAckWithVersion:version mutationResults:@[ mutationResult ]];
 }
 
 - (void)doFailWrite:(NSDictionary *)spec {
   NSDictionary *errorSpec = spec[@"error"];
-  NSNumber *expectUserCallback = spec[@"expectUserCallback"];
+  NSNumber *keepInQueue = spec[@"keepInQueue"];
 
   int code = ((NSNumber *)(errorSpec[@"code"])).intValue;
-  FSTOutstandingWrite *write = [self.driver receiveWriteError:code userInfo:errorSpec];
+  [self.driver receiveWriteError:code userInfo:errorSpec keepInQueue:keepInQueue.boolValue];
+}
 
-  if (expectUserCallback.boolValue) {
-    FSTAssert(write.done, @"Write should be done");
-    XCTAssertNotNil(write.error, @"Write should have failed");
-    XCTAssertEqualObjects(write.error.domain, FIRFirestoreErrorDomain);
-    XCTAssertEqual(write.error.code, code);
-  }
+- (void)doDrainQueue {
+  [self.driver drainQueue];
 }
 
 - (void)doRunTimer:(NSString *)timer {
@@ -358,7 +383,7 @@ static NSString *const kNoIOSTag = @"no-ios";
   } else if ([timer isEqualToString:@"online_state_timeout"]) {
     timerID = FSTTimerIDOnlineStateTimeout;
   } else {
-    FSTFail(@"runTimer spec step specified unknown timer: %@", timer);
+    HARD_FAIL("runTimer spec step specified unknown timer: %s", timer);
   }
 
   [self.driver runTimer:timerID];
@@ -372,7 +397,7 @@ static NSString *const kNoIOSTag = @"no-ios";
   [self.driver enableNetwork];
 }
 
-- (void)doChangeUser:(id)UID {
+- (void)doChangeUser:(nullable id)UID {
   if ([UID isEqual:[NSNull null]]) {
     UID = nil;
   }
@@ -387,20 +412,17 @@ static NSString *const kNoIOSTag = @"no-ios";
 
   [self.driver shutdown];
 
-  // NOTE: We intentionally don't shutdown / re-create driverPersistence, since we want to
-  // preserve the persisted state. This is a bit of a cheat since it means we're not exercising
-  // the initialization / start logic that would normally be hit, but simplifies the plumbing and
-  // allows us to run these tests against FSTMemoryPersistence as well (there would be no way to
-  // re-create FSTMemoryPersistence without losing all persisted state).
-
-  self.driver = [[FSTSyncEngineTestDriver alloc] initWithPersistence:self.driverPersistence
-                                                    garbageCollector:self.garbageCollector
+  id<FSTPersistence> persistence = [self persistenceWithGCEnabled:_gcEnabled];
+  self.driver = [[FSTSyncEngineTestDriver alloc] initWithPersistence:persistence
                                                          initialUser:currentUser
                                                    outstandingWrites:outstandingWrites];
   [self.driver start];
 }
 
 - (void)doStep:(NSDictionary *)step {
+  NSNumber *clientIndex = step[@"clientIndex"];
+  XCTAssertNil(clientIndex, @"The iOS client does not support switching clients");
+
   if (step[@"userListen"]) {
     [self doListen:step[@"userListen"]];
   } else if (step[@"userUnlisten"]) {
@@ -411,23 +433,27 @@ static NSString *const kNoIOSTag = @"no-ios";
     [self doPatch:step[@"userPatch"]];
   } else if (step[@"userDelete"]) {
     [self doDelete:step[@"userDelete"]];
+  } else if (step[@"drainQueue"]) {
+    [self doDrainQueue];
   } else if (step[@"watchAck"]) {
-    [self doWatchAck:step[@"watchAck"] snapshot:step[@"watchSnapshot"]];
+    [self doWatchAck:step[@"watchAck"]];
   } else if (step[@"watchCurrent"]) {
-    [self doWatchCurrent:step[@"watchCurrent"] snapshot:step[@"watchSnapshot"]];
+    [self doWatchCurrent:step[@"watchCurrent"]];
   } else if (step[@"watchRemove"]) {
-    [self doWatchRemove:step[@"watchRemove"] snapshot:step[@"watchSnapshot"]];
+    [self doWatchRemove:step[@"watchRemove"]];
   } else if (step[@"watchEntity"]) {
-    [self doWatchEntity:step[@"watchEntity"] snapshot:step[@"watchSnapshot"]];
+    [self doWatchEntity:step[@"watchEntity"]];
   } else if (step[@"watchFilter"]) {
-    [self doWatchFilter:step[@"watchFilter"] snapshot:step[@"watchSnapshot"]];
+    [self doWatchFilter:step[@"watchFilter"]];
   } else if (step[@"watchReset"]) {
-    [self doWatchReset:step[@"watchReset"] snapshot:step[@"watchSnapshot"]];
+    [self doWatchReset:step[@"watchReset"]];
+  } else if (step[@"watchSnapshot"]) {
+    [self doWatchSnapshot:step[@"watchSnapshot"]];
   } else if (step[@"watchStreamClose"]) {
     [self doWatchStreamClose:step[@"watchStreamClose"]];
   } else if (step[@"watchProto"]) {
     // watchProto isn't yet used, and it's unclear how to create arbitrary protos from JSON.
-    FSTFail(@"watchProto is not yet supported.");
+    HARD_FAIL("watchProto is not yet supported.");
   } else if (step[@"writeAck"]) {
     [self doWriteAck:step[@"writeAck"]];
   } else if (step[@"failWrite"]) {
@@ -444,6 +470,10 @@ static NSString *const kNoIOSTag = @"no-ios";
     [self doChangeUser:step[@"changeUser"]];
   } else if (step[@"restart"]) {
     [self doRestart];
+  } else if (step[@"applyClientState"]) {
+    XCTFail(
+        @"'applyClientState' is not supported on iOS and should only be used in multi-client "
+        @"tests");
   } else {
     XCTFail(@"Unknown step: %@", step);
   }
@@ -488,7 +518,7 @@ static NSString *const kNoIOSTag = @"no-ios";
   }
 }
 
-- (void)validateStepExpectations:(NSMutableArray *_Nullable)stepExpectations {
+- (void)validateStepExpectations:(NSArray *_Nullable)stepExpectations {
   NSArray<FSTQueryEvent *> *events = self.driver.capturedEventsSinceLastCall;
 
   if (!stepExpectations) {
@@ -499,12 +529,18 @@ static NSString *const kNoIOSTag = @"no-ios";
     return;
   }
 
+  XCTAssertEqual(events.count, stepExpectations.count);
   events =
       [events sortedArrayUsingComparator:^NSComparisonResult(FSTQueryEvent *q1, FSTQueryEvent *q2) {
         return [q1.query.canonicalID compare:q2.query.canonicalID];
       }];
+  stepExpectations = [stepExpectations
+      sortedArrayUsingComparator:^NSComparisonResult(NSDictionary *left, NSDictionary *right) {
+        FSTQuery *leftQuery = [self parseQuery:left[@"query"]];
+        FSTQuery *rightQuery = [self parseQuery:right[@"query"]];
+        return [leftQuery.canonicalID compare:rightQuery.canonicalID];
+      }];
 
-  XCTAssertEqual(events.count, stepExpectations.count);
   NSUInteger i = 0;
   for (; i < stepExpectations.count && i < events.count; ++i) {
     [self validateEvent:events[i] matches:stepExpectations[i]];
@@ -544,7 +580,7 @@ static NSString *const kNoIOSTag = @"no-ios";
       [expected[@"activeTargets"] enumerateKeysAndObjectsUsingBlock:^(NSString *targetIDString,
                                                                       NSDictionary *queryData,
                                                                       BOOL *stop) {
-        FSTTargetID targetID = [targetIDString intValue];
+        TargetId targetID = [targetIDString intValue];
         FSTQuery *query = [self parseQuery:queryData[@"query"]];
         NSData *resumeToken = [queryData[@"resumeToken"] dataUsingEncoding:NSUTF8StringEncoding];
         // TODO(mcg): populate the purpose of the target once it's possible to encode that in the
@@ -562,10 +598,27 @@ static NSString *const kNoIOSTag = @"no-ios";
     }
   }
 
+  // Always validate the we received the expected number of callbacks.
+  [self validateUserCallbacks:expected];
   // Always validate that the expected limbo docs match the actual limbo docs.
   [self validateLimboDocuments];
   // Always validate that the expected active targets match the actual active targets.
   [self validateActiveTargets];
+}
+
+- (void)validateUserCallbacks:(nullable NSDictionary *)expected {
+  NSDictionary *expectedCallbacks = expected[@"userCallbacks"];
+  NSArray<NSString *> *actualAcknowledgedDocs =
+      [self.driver capturedAcknowledgedWritesSinceLastCall];
+  NSArray<NSString *> *actualRejectedDocs = [self.driver capturedRejectedWritesSinceLastCall];
+
+  if (expectedCallbacks) {
+    XCTAssertTrue([actualAcknowledgedDocs isEqualToArray:expectedCallbacks[@"acknowledgedDocs"]]);
+    XCTAssertTrue([actualRejectedDocs isEqualToArray:expectedCallbacks[@"rejectedDocs"]]);
+  } else {
+    XCTAssertEqual([actualAcknowledgedDocs count], 0);
+    XCTAssertEqual([actualRejectedDocs count], 0);
+  }
 }
 
 - (void)validateLimboDocuments {
@@ -608,7 +661,7 @@ static NSString *const kNoIOSTag = @"no-ios";
       XCTAssertEqualObjects(actual.query, queryData.query);
       XCTAssertEqual(actual.targetID, queryData.targetID);
       XCTAssertEqual(actual.snapshotVersion, queryData.snapshotVersion);
-      XCTAssertEqualObjects(actual.resumeToken, queryData.resumeToken);
+      XCTAssertEqualObjects(Describe(actual.resumeToken), Describe(queryData.resumeToken));
     }
 
     [actualTargets removeObjectForKey:targetID];
@@ -620,7 +673,7 @@ static NSString *const kNoIOSTag = @"no-ios";
   @try {
     [self setUpForSpecWithConfig:config];
     for (NSDictionary *step in steps) {
-      FSTLog(@"Doing step %@", step);
+      LOG_DEBUG("Doing step %s", step);
       [self doStep:step];
       [self validateStepExpectations:step[@"expect"]];
       [self validateStateExpectations:step[@"stateExpect"]];
@@ -684,8 +737,8 @@ static NSString *const kNoIOSTag = @"no-ios";
       NSArray<NSString *> *tags = testDescription[@"tags"];
 
       BOOL runTest = !exclusiveMode || [tags indexOfObject:kExclusiveTag] != NSNotFound;
-      if ([tags indexOfObject:kNoIOSTag] != NSNotFound) {
-        runTest = NO;
+      if (runTest) {
+        runTest = [self shouldRunWithTags:tags];
       }
       if (runTest) {
         NSLog(@"  Spec test: %@", name);
@@ -693,6 +746,10 @@ static NSString *const kNoIOSTag = @"no-ios";
         ranAtLeastOneTest = YES;
       } else {
         NSLog(@"  [SKIPPED] Spec test: %@", name);
+        NSString *comment = testDescription[@"comment"];
+        if (comment) {
+          NSLog(@"    %@", comment);
+        }
       }
     }];
   }

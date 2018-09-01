@@ -50,6 +50,7 @@ using firebase::firestore::model::DatabaseId;
 using firebase::firestore::model::FieldMask;
 using firebase::firestore::model::Precondition;
 using firebase::firestore::model::SnapshotVersion;
+using firebase::firestore::model::TargetId;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -79,12 +80,12 @@ NS_ASSUME_NONNULL_BEGIN
 }
 
 - (void)testEncodesMutationBatch {
-  FSTMutation *set = FSTTestSetMutation(@"foo/bar", @{ @"a" : @"b", @"num" : @1 });
+  FSTMutation *set = FSTTestSetMutation(@"foo/bar", @{@"a" : @"b", @"num" : @1});
   FSTMutation *patch = [[FSTPatchMutation alloc] initWithKey:FSTTestDocKey(@"bar/baz")
                                                    fieldMask:FieldMask{testutil::Field("a")}
                                                        value:FSTTestObjectValue(
-                                                                 @{ @"a" : @"b",
-                                                                    @"num" : @1 })
+                                                                 @{@"a" : @"b",
+                                                                   @"num" : @1})
                                                 precondition:Precondition::Exists(true)];
   FSTMutation *del = FSTTestDeleteMutation(@"baz/quux");
   FIRTimestamp *writeTime = [FIRTimestamp timestamp];
@@ -161,7 +162,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)testEncodesQueryData {
   FSTQuery *query = FSTTestQuery("room");
-  FSTTargetID targetID = 42;
+  TargetId targetID = 42;
   SnapshotVersion version = testutil::Version(1039);
   NSData *resumeToken = FSTTestResumeTokenFromSnapshotVersion(1039);
 

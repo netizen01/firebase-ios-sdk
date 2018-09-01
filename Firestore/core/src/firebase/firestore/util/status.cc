@@ -16,15 +16,16 @@
 
 #include "Firestore/core/src/firebase/firestore/util/status.h"
 
-#include "Firestore/core/src/firebase/firestore/util/string_printf.h"
+#include "Firestore/core/src/firebase/firestore/util/string_format.h"
+#include "absl/memory/memory.h"
 
 namespace firebase {
 namespace firestore {
 namespace util {
 
 Status::Status(FirestoreErrorCode code, absl::string_view msg) {
-  FIREBASE_ASSERT(code != FirestoreErrorCode::Ok);
-  state_ = std::unique_ptr<State>(new State);
+  HARD_ASSERT(code != FirestoreErrorCode::Ok);
+  state_ = absl::make_unique<State>();
   state_->code = code;
   state_->msg = static_cast<std::string>(msg);
 }
@@ -35,11 +36,25 @@ void Status::Update(const Status& new_status) {
   }
 }
 
+Status& Status::CausedBy(const Status& cause) {
+  if (cause.ok() || this == &cause) {
+    return *this;
+  }
+
+  if (ok()) {
+    *this = cause;
+    return *this;
+  }
+
+  absl::StrAppend(&state_->msg, ": ", cause.error_message());
+  return *this;
+}
+
 void Status::SlowCopyFrom(const State* src) {
   if (src == nullptr) {
     state_ = nullptr;
   } else {
-    state_ = std::unique_ptr<State>(new State(*src));
+    state_ = absl::make_unique<State>(*src);
   }
 }
 
@@ -103,7 +118,7 @@ std::string Status::ToString() const {
         result = "Data loss";
         break;
       default:
-        result = StringPrintf("Unknown code(%d)", static_cast<int>(code()));
+        result = StringFormat("Unknown code(%s)", code());
         break;
     }
     result += ": ";
@@ -117,7 +132,7 @@ void Status::IgnoreError() const {
 }
 
 std::string StatusCheckOpHelperOutOfLine(const Status& v, const char* msg) {
-  FIREBASE_ASSERT(!v.ok());
+  HARD_ASSERT(!v.ok());
   std::string r("Non-OK-status: ");
   r += msg;
   r += " status: ";

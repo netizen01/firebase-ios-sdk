@@ -36,13 +36,13 @@
 #import "Firestore/Source/Model/FSTDocumentSet.h"
 #import "Firestore/Source/Model/FSTFieldValue.h"
 #import "Firestore/Source/Model/FSTMutation.h"
-#import "Firestore/Source/Util/FSTAssert.h"
 #import "Firestore/Source/Util/FSTAsyncQueryListener.h"
 #import "Firestore/Source/Util/FSTUsageValidation.h"
 
 #include "Firestore/core/src/firebase/firestore/model/document_key.h"
 #include "Firestore/core/src/firebase/firestore/model/precondition.h"
 #include "Firestore/core/src/firebase/firestore/model/resource_path.h"
+#include "Firestore/core/src/firebase/firestore/util/hard_assert.h"
 #include "Firestore/core/src/firebase/firestore/util/string_apple.h"
 
 namespace util = firebase::firestore::util;
@@ -111,7 +111,7 @@ NS_ASSUME_NONNULL_BEGIN
   if (!collectionPath) {
     FSTThrowInvalidArgument(@"Collection path cannot be nil.");
   }
-  const ResourcePath subPath = ResourcePath::FromString(util::MakeStringView(collectionPath));
+  const ResourcePath subPath = ResourcePath::FromString(util::MakeString(collectionPath));
   const ResourcePath path = self.key.path().Append(subPath);
   return [FIRCollectionReference referenceWithPath:path firestore:self.firestore];
 }
@@ -249,16 +249,16 @@ NS_ASSUME_NONNULL_BEGIN
 }
 
 - (id<FIRListenerRegistration>)
-addSnapshotListenerWithIncludeMetadataChanges:(BOOL)includeMetadataChanges
-                                     listener:(FIRDocumentSnapshotBlock)listener {
+    addSnapshotListenerWithIncludeMetadataChanges:(BOOL)includeMetadataChanges
+                                         listener:(FIRDocumentSnapshotBlock)listener {
   FSTListenOptions *options =
       [self internalOptionsForIncludeMetadataChanges:includeMetadataChanges];
   return [self addSnapshotListenerInternalWithOptions:options listener:listener];
 }
 
 - (id<FIRListenerRegistration>)
-addSnapshotListenerInternalWithOptions:(FSTListenOptions *)internalOptions
-                              listener:(FIRDocumentSnapshotBlock)listener {
+    addSnapshotListenerInternalWithOptions:(FSTListenOptions *)internalOptions
+                                  listener:(FIRDocumentSnapshotBlock)listener {
   FIRFirestore *firestore = self.firestore;
   FSTQuery *query = [FSTQuery queryWithPath:self.key.path()];
   const DocumentKey key = self.key;
@@ -269,7 +269,7 @@ addSnapshotListenerInternalWithOptions:(FSTListenOptions *)internalOptions
       return;
     }
 
-    FSTAssert(snapshot.documents.count <= 1, @"Too many document returned on a document query");
+    HARD_ASSERT(snapshot.documents.count <= 1, "Too many document returned on a document query");
     FSTDocument *document = [snapshot.documents documentForKey:key];
 
     FIRDocumentSnapshot *result = [FIRDocumentSnapshot snapshotWithFirestore:firestore
@@ -280,8 +280,8 @@ addSnapshotListenerInternalWithOptions:(FSTListenOptions *)internalOptions
   };
 
   FSTAsyncQueryListener *asyncListener =
-      [[FSTAsyncQueryListener alloc] initWithDispatchQueue:self.firestore.client.userDispatchQueue
-                                           snapshotHandler:snapshotHandler];
+      [[FSTAsyncQueryListener alloc] initWithExecutor:self.firestore.client.userExecutor
+                                      snapshotHandler:snapshotHandler];
 
   FSTQueryListener *internalListener =
       [firestore.client listenToQuery:query

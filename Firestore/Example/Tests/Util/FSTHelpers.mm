@@ -22,7 +22,7 @@
 
 #include <cinttypes>
 #include <list>
-#include <map>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -40,7 +40,6 @@
 #import "Firestore/Source/Model/FSTMutation.h"
 #import "Firestore/Source/Remote/FSTRemoteEvent.h"
 #import "Firestore/Source/Remote/FSTWatchChange.h"
-#import "Firestore/Source/Util/FSTAssert.h"
 
 #include "Firestore/core/src/firebase/firestore/model/database_id.h"
 #include "Firestore/core/src/firebase/firestore/model/document_key.h"
@@ -55,10 +54,11 @@
 #include "Firestore/core/test/firebase/firestore/testutil/testutil.h"
 #include "absl/memory/memory.h"
 
-namespace util = firebase::firestore::util;
 namespace testutil = firebase::firestore::testutil;
+namespace util = firebase::firestore::util;
 using firebase::firestore::model::DatabaseId;
 using firebase::firestore::model::DocumentKey;
+using firebase::firestore::model::DocumentKeySet;
 using firebase::firestore::model::FieldMask;
 using firebase::firestore::model::FieldPath;
 using firebase::firestore::model::FieldTransform;
@@ -66,8 +66,9 @@ using firebase::firestore::model::FieldValue;
 using firebase::firestore::model::Precondition;
 using firebase::firestore::model::ResourcePath;
 using firebase::firestore::model::ServerTimestampTransform;
+using firebase::firestore::model::SnapshotVersion;
+using firebase::firestore::model::TargetId;
 using firebase::firestore::model::TransformOperation;
-using firebase::firestore::model::DocumentKeySet;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -140,7 +141,7 @@ FSTFieldValue *FSTTestFieldValue(id _Nullable value) {
 
 FSTObjectValue *FSTTestObjectValue(NSDictionary<NSString *, id> *data) {
   FSTFieldValue *wrapped = FSTTestFieldValue(data);
-  FSTCAssert([wrapped isKindOfClass:[FSTObjectValue class]], @"Unsupported value: %@", data);
+  HARD_ASSERT([wrapped isKindOfClass:[FSTObjectValue class]], "Unsupported value: %s", data);
   return (FSTObjectValue *)wrapped;
 }
 
@@ -165,12 +166,10 @@ FSTDeletedDocument *FSTTestDeletedDoc(const absl::string_view path,
   return [FSTDeletedDocument documentWithKey:key version:testutil::Version(version)];
 }
 
-FSTDocumentKeyReference *FSTTestRef(const absl::string_view projectID,
-                                    const absl::string_view database,
-                                    NSString *path) {
+FSTDocumentKeyReference *FSTTestRef(std::string projectID, std::string database, NSString *path) {
   // This owns the DatabaseIds since we do not have FirestoreClient instance to own them.
   static std::list<DatabaseId> database_ids;
-  database_ids.emplace_back(projectID, database);
+  database_ids.emplace_back(std::move(projectID), std::move(database));
   return [[FSTDocumentKeyReference alloc] initWithKey:FSTTestDocKey(path)
                                            databaseID:&database_ids.back()];
 }
@@ -179,7 +178,7 @@ FSTQuery *FSTTestQuery(const absl::string_view path) {
   return [FSTQuery queryWithPath:testutil::Resource(path)];
 }
 
-id<FSTFilter> FSTTestFilter(const absl::string_view field, NSString *opString, id value) {
+FSTFilter *FSTTestFilter(const absl::string_view field, NSString *opString, id value) {
   const FieldPath path = testutil::Field(field);
   FSTRelationFilterOperator op;
   if ([opString isEqualToString:@"<"]) {
@@ -195,19 +194,12 @@ id<FSTFilter> FSTTestFilter(const absl::string_view field, NSString *opString, i
   } else if ([opString isEqualToString:@"array_contains"]) {
     op = FSTRelationFilterOperatorArrayContains;
   } else {
-    FSTCFail(@"Unsupported operator type: %@", opString);
+    HARD_FAIL("Unsupported operator type: %s", opString);
   }
 
   FSTFieldValue *data = FSTTestFieldValue(value);
-  if ([data isEqual:[FSTDoubleValue nanValue]]) {
-    FSTCAssert(op == FSTRelationFilterOperatorEqual, @"Must use == with NAN.");
-    return [[FSTNanFilter alloc] initWithField:path];
-  } else if ([data isEqual:[FSTNullValue nullValue]]) {
-    FSTCAssert(op == FSTRelationFilterOperatorEqual, @"Must use == with Null.");
-    return [[FSTNullFilter alloc] initWithField:path];
-  } else {
-    return [FSTRelationFilter filterWithField:path filterOperator:op value:data];
-  }
+
+  return [FSTFilter filterWithField:path filterOperator:op value:data];
 }
 
 FSTSortOrder *FSTTestOrderBy(const absl::string_view field, NSString *direction) {
@@ -218,7 +210,7 @@ FSTSortOrder *FSTTestOrderBy(const absl::string_view field, NSString *direction)
   } else if ([direction isEqualToString:@"desc"]) {
     ascending = NO;
   } else {
-    FSTCFail(@"Unsupported direction: %@", direction);
+    HARD_FAIL("Unsupported direction: %s", direction);
   }
   return [FSTSortOrder sortOrderWithFieldPath:path ascending:ascending];
 }
@@ -250,9 +242,9 @@ FSTPatchMutation *FSTTestPatchMutation(const absl::string_view path,
   BOOL merge = !updateMask.empty();
 
   __block FSTObjectValue *objectValue = [FSTObjectValue objectValue];
-  __block std::vector<FieldPath> fieldMaskPaths{};
+  __block std::vector<FieldPath> fieldMaskPaths;
   [values enumerateKeysAndObjectsUsingBlock:^(NSString *key, id value, BOOL *stop) {
-    const FieldPath path = testutil::Field(util::MakeStringView(key));
+    const FieldPath path = testutil::Field(util::MakeString(key));
     fieldMaskPaths.push_back(path);
     if (![value isEqual:kDeleteSentinel]) {
       FSTFieldValue *parsedValue = FSTTestFieldValue(value);
@@ -269,11 +261,11 @@ FSTPatchMutation *FSTTestPatchMutation(const absl::string_view path,
 }
 
 FSTTransformMutation *FSTTestTransformMutation(NSString *path, NSDictionary<NSString *, id> *data) {
-  FSTDocumentKey *key = [FSTDocumentKey keyWithPath:testutil::Resource(util::MakeStringView(path))];
+  FSTDocumentKey *key = [FSTDocumentKey keyWithPath:testutil::Resource(util::MakeString(path))];
   FSTUserDataConverter *converter = FSTTestUserDataConverter();
   FSTParsedUpdateData *result = [converter parsedUpdateData:data];
-  FSTCAssert(result.data.value.count == 0,
-             @"FSTTestTransformMutation() only expects transforms; no other data");
+  HARD_ASSERT(result.data.value.count == 0,
+              "FSTTestTransformMutation() only expects transforms; no other data");
   return [[FSTTransformMutation alloc] initWithKey:key
                                    fieldTransforms:std::move(result.fieldTransforms)];
 }
@@ -299,29 +291,147 @@ FSTViewSnapshot *_Nullable FSTTestApplyChanges(FSTView *view,
       .snapshot;
 }
 
-FSTRemoteEvent *FSTTestUpdateRemoteEvent(FSTMaybeDocument *doc,
-                                         NSArray<NSNumber *> *updatedInTargets,
-                                         NSArray<NSNumber *> *removedFromTargets) {
+@implementation FSTTestTargetMetadataProvider {
+  std::unordered_map<TargetId, DocumentKeySet> _syncedKeys;
+  std::unordered_map<TargetId, FSTQueryData *> _queryData;
+}
+
++ (instancetype)providerWithSingleResultForKey:(DocumentKey)documentKey
+                                 listenTargets:(NSArray<FSTBoxedTargetID *> *)listenTargets
+                                  limboTargets:(NSArray<FSTBoxedTargetID *> *)limboTargets {
+  FSTTestTargetMetadataProvider *metadataProvider = [FSTTestTargetMetadataProvider new];
+  FSTQuery *query = [FSTQuery queryWithPath:documentKey.path()];
+
+  for (FSTBoxedTargetID *targetID in listenTargets) {
+    FSTQueryData *queryData = [[FSTQueryData alloc] initWithQuery:query
+                                                         targetID:targetID.intValue
+                                             listenSequenceNumber:0
+                                                          purpose:FSTQueryPurposeListen];
+    [metadataProvider setSyncedKeys:DocumentKeySet{documentKey} forQueryData:queryData];
+  }
+  for (FSTBoxedTargetID *targetID in limboTargets) {
+    FSTQueryData *queryData = [[FSTQueryData alloc] initWithQuery:query
+                                                         targetID:targetID.intValue
+                                             listenSequenceNumber:0
+                                                          purpose:FSTQueryPurposeLimboResolution];
+    [metadataProvider setSyncedKeys:DocumentKeySet{documentKey} forQueryData:queryData];
+  }
+
+  return metadataProvider;
+}
+
++ (instancetype)providerWithSingleResultForKey:(DocumentKey)documentKey
+                                       targets:(NSArray<FSTBoxedTargetID *> *)targets {
+  return [self providerWithSingleResultForKey:documentKey listenTargets:targets limboTargets:@[]];
+}
+
++ (instancetype)providerWithEmptyResultForKey:(DocumentKey)documentKey
+                                      targets:(NSArray<FSTBoxedTargetID *> *)targets {
+  FSTTestTargetMetadataProvider *metadataProvider = [FSTTestTargetMetadataProvider new];
+  FSTQuery *query = [FSTQuery queryWithPath:documentKey.path()];
+
+  for (FSTBoxedTargetID *targetID in targets) {
+    FSTQueryData *queryData = [[FSTQueryData alloc] initWithQuery:query
+                                                         targetID:targetID.intValue
+                                             listenSequenceNumber:0
+                                                          purpose:FSTQueryPurposeListen];
+    [metadataProvider setSyncedKeys:DocumentKeySet {} forQueryData:queryData];
+  }
+
+  return metadataProvider;
+}
+
+- (void)setSyncedKeys:(DocumentKeySet)keys forQueryData:(FSTQueryData *)queryData {
+  _syncedKeys[queryData.targetID] = keys;
+  _queryData[queryData.targetID] = queryData;
+}
+
+- (DocumentKeySet)remoteKeysForTarget:(FSTBoxedTargetID *)targetID {
+  auto it = _syncedKeys.find(targetID.intValue);
+  HARD_ASSERT(it != _syncedKeys.end(), "Cannot process unknown target %s", targetID.intValue);
+  return it->second;
+}
+
+- (nullable FSTQueryData *)queryDataForTarget:(FSTBoxedTargetID *)targetID {
+  auto it = _queryData.find(targetID.intValue);
+  HARD_ASSERT(it != _queryData.end(), "Cannot process unknown target %s", targetID.intValue);
+  return it->second;
+}
+
+@end
+
+FSTRemoteEvent *FSTTestAddedRemoteEvent(FSTMaybeDocument *doc,
+                                        NSArray<FSTBoxedTargetID *> *addedToTargets) {
+  HARD_ASSERT(![doc isKindOfClass:[FSTDocument class]] || ![(FSTDocument *)doc hasLocalMutations],
+              "Docs from remote updates shouldn't have local changes.");
+  FSTDocumentWatchChange *change =
+      [[FSTDocumentWatchChange alloc] initWithUpdatedTargetIDs:addedToTargets
+                                              removedTargetIDs:{}
+                                                   documentKey:doc.key
+                                                      document:doc];
+  FSTWatchChangeAggregator *aggregator = [[FSTWatchChangeAggregator alloc]
+      initWithTargetMetadataProvider:[FSTTestTargetMetadataProvider
+                                         providerWithEmptyResultForKey:doc.key
+                                                               targets:addedToTargets]];
+  [aggregator handleDocumentChange:change];
+  return [aggregator remoteEventAtSnapshotVersion:doc.version];
+}
+
+FSTTargetChange *FSTTestTargetChangeMarkCurrent() {
+  return [[FSTTargetChange alloc] initWithResumeToken:[NSData data]
+      current:YES
+      addedDocuments:DocumentKeySet {}
+      modifiedDocuments:DocumentKeySet {}
+      removedDocuments:DocumentKeySet{}];
+}
+
+FSTTargetChange *FSTTestTargetChangeAckDocuments(DocumentKeySet docs) {
+  return [[FSTTargetChange alloc] initWithResumeToken:[NSData data]
+                                              current:YES
+                                       addedDocuments:docs
+                                    modifiedDocuments:DocumentKeySet {}
+                                     removedDocuments:DocumentKeySet{}];
+}
+
+FSTTargetChange *FSTTestTargetChange(DocumentKeySet added,
+                                     DocumentKeySet modified,
+                                     DocumentKeySet removed,
+                                     NSData *resumeToken,
+                                     BOOL current) {
+  return [[FSTTargetChange alloc] initWithResumeToken:resumeToken
+                                              current:current
+                                       addedDocuments:added
+                                    modifiedDocuments:modified
+                                     removedDocuments:removed];
+}
+
+FSTRemoteEvent *FSTTestUpdateRemoteEventWithLimboTargets(
+    FSTMaybeDocument *doc,
+    NSArray<FSTBoxedTargetID *> *updatedInTargets,
+    NSArray<FSTBoxedTargetID *> *removedFromTargets,
+    NSArray<FSTBoxedTargetID *> *limboTargets) {
+  HARD_ASSERT(![doc isKindOfClass:[FSTDocument class]] || ![(FSTDocument *)doc hasLocalMutations],
+              "Docs from remote updates shouldn't have local changes.");
   FSTDocumentWatchChange *change =
       [[FSTDocumentWatchChange alloc] initWithUpdatedTargetIDs:updatedInTargets
                                               removedTargetIDs:removedFromTargets
                                                    documentKey:doc.key
                                                       document:doc];
-  NSMutableDictionary<NSNumber *, FSTQueryData *> *listens = [NSMutableDictionary dictionary];
-  FSTQueryData *dummyQueryData = [FSTQueryData alloc];
-  for (NSNumber *targetID in updatedInTargets) {
-    listens[targetID] = dummyQueryData;
-  }
-  for (NSNumber *targetID in removedFromTargets) {
-    listens[targetID] = dummyQueryData;
-  }
-  NSMutableDictionary<NSNumber *, NSNumber *> *pending = [NSMutableDictionary dictionary];
-  FSTWatchChangeAggregator *aggregator =
-      [[FSTWatchChangeAggregator alloc] initWithSnapshotVersion:doc.version
-                                                  listenTargets:listens
-                                         pendingTargetResponses:pending];
-  [aggregator addWatchChange:change];
-  return [aggregator remoteEvent];
+  NSArray<FSTBoxedTargetID *> *listens =
+      [updatedInTargets arrayByAddingObjectsFromArray:removedFromTargets];
+  FSTWatchChangeAggregator *aggregator = [[FSTWatchChangeAggregator alloc]
+      initWithTargetMetadataProvider:[FSTTestTargetMetadataProvider
+                                         providerWithSingleResultForKey:doc.key
+                                                          listenTargets:listens
+                                                           limboTargets:limboTargets]];
+  [aggregator handleDocumentChange:change];
+  return [aggregator remoteEventAtSnapshotVersion:doc.version];
+}
+
+FSTRemoteEvent *FSTTestUpdateRemoteEvent(FSTMaybeDocument *doc,
+                                         NSArray<NSNumber *> *updatedInTargets,
+                                         NSArray<NSNumber *> *removedFromTargets) {
+  return FSTTestUpdateRemoteEventWithLimboTargets(doc, updatedInTargets, removedFromTargets, @[]);
 }
 
 /** Creates a resume token to match the given snapshot version. */
@@ -334,20 +444,20 @@ NSData *_Nullable FSTTestResumeTokenFromSnapshotVersion(FSTTestSnapshotVersion s
   return [snapshotString dataUsingEncoding:NSUTF8StringEncoding];
 }
 
-FSTLocalViewChanges *FSTTestViewChanges(FSTQuery *query,
+FSTLocalViewChanges *FSTTestViewChanges(TargetId targetID,
                                         NSArray<NSString *> *addedKeys,
                                         NSArray<NSString *> *removedKeys) {
   DocumentKeySet added;
   for (NSString *keyPath in addedKeys) {
-    added = added.insert(testutil::Key(util::MakeStringView(keyPath)));
+    added = added.insert(testutil::Key(util::MakeString(keyPath)));
   }
   DocumentKeySet removed;
   for (NSString *keyPath in removedKeys) {
-    removed = removed.insert(testutil::Key(util::MakeStringView(keyPath)));
+    removed = removed.insert(testutil::Key(util::MakeString(keyPath)));
   }
-  return [FSTLocalViewChanges changesForQuery:query
-                                    addedKeys:std::move(added)
-                                  removedKeys:std::move(removed)];
+  return [FSTLocalViewChanges changesForTarget:targetID
+                                     addedKeys:std::move(added)
+                                   removedKeys:std::move(removed)];
 }
 
 NS_ASSUME_NONNULL_END

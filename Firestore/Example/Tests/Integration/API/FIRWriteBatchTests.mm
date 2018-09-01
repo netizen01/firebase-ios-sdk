@@ -17,6 +17,9 @@
 #import <FirebaseFirestore/FirebaseFirestore.h>
 
 #import <XCTest/XCTest.h>
+#include <mach/mach.h>
+
+#include <cstdint>
 
 #import "Firestore/Example/Tests/Util/FSTEventAccumulator.h"
 #import "Firestore/Example/Tests/Util/FSTIntegrationTestCase.h"
@@ -78,8 +81,8 @@
   FIRDocumentReference *doc = [self documentRef];
   XCTestExpectation *batchExpectation = [self expectationWithDescription:@"batch written"];
   FIRWriteBatch *batch = [doc.firestore batch];
-  [batch setData:@{ @"a" : @"b", @"nested" : @{@"a" : @"b"} } forDocument:doc];
-  [batch setData:@{ @"c" : @"d", @"nested" : @{@"c" : @"d"} } forDocument:doc merge:YES];
+  [batch setData:@{@"a" : @"b", @"nested" : @{@"a" : @"b"}} forDocument:doc];
+  [batch setData:@{@"c" : @"d", @"nested" : @{@"c" : @"d"}} forDocument:doc merge:YES];
   [batch commitWithCompletion:^(NSError *error) {
     XCTAssertNil(error);
     [batchExpectation fulfill];
@@ -87,11 +90,11 @@
   [self awaitExpectations];
   FIRDocumentSnapshot *snapshot = [self readDocumentForRef:doc];
   XCTAssertTrue(snapshot.exists);
-  XCTAssertEqualObjects(
-      snapshot.data, (
-                         @{ @"a" : @"b",
-                            @"c" : @"d",
-                            @"nested" : @{@"a" : @"b", @"c" : @"d"} }));
+  XCTAssertEqualObjects(snapshot.data,
+                        (
+                            @{@"a" : @"b",
+                              @"c" : @"d",
+                              @"nested" : @{@"a" : @"b", @"c" : @"d"}}));
 }
 
 - (void)testUpdateDocuments {
@@ -99,7 +102,7 @@
   [self writeDocumentRef:doc data:@{@"foo" : @"bar"}];
   XCTestExpectation *batchExpectation = [self expectationWithDescription:@"batch written"];
   FIRWriteBatch *batch = [doc.firestore batch];
-  [batch updateData:@{ @"baz" : @42 } forDocument:doc];
+  [batch updateData:@{@"baz" : @42} forDocument:doc];
   [batch commitWithCompletion:^(NSError *error) {
     XCTAssertNil(error);
     [batchExpectation fulfill];
@@ -107,14 +110,14 @@
   [self awaitExpectations];
   FIRDocumentSnapshot *snapshot = [self readDocumentForRef:doc];
   XCTAssertTrue(snapshot.exists);
-  XCTAssertEqualObjects(snapshot.data, (@{ @"foo" : @"bar", @"baz" : @42 }));
+  XCTAssertEqualObjects(snapshot.data, (@{@"foo" : @"bar", @"baz" : @42}));
 }
 
 - (void)testCannotUpdateNonexistentDocuments {
   FIRDocumentReference *doc = [self documentRef];
   XCTestExpectation *batchExpectation = [self expectationWithDescription:@"batch written"];
   FIRWriteBatch *batch = [doc.firestore batch];
-  [batch updateData:@{ @"baz" : @42 } forDocument:doc];
+  [batch updateData:@{@"baz" : @42} forDocument:doc];
   [batch commitWithCompletion:^(NSError *error) {
     XCTAssertNotNil(error);
     [batchExpectation fulfill];
@@ -155,8 +158,8 @@
   // Atomically write two documents.
   XCTestExpectation *expectation = [self expectationWithDescription:@"batch written"];
   FIRWriteBatch *batch = [collection.firestore batch];
-  [batch setData:@{ @"a" : @1 } forDocument:docA];
-  [batch setData:@{ @"b" : @2 } forDocument:docB];
+  [batch setData:@{@"a" : @1} forDocument:docA];
+  [batch setData:@{@"b" : @2} forDocument:docB];
   [batch commitWithCompletion:^(NSError *_Nullable error) {
     XCTAssertNil(error);
     [expectation fulfill];
@@ -164,11 +167,11 @@
 
   FIRQuerySnapshot *localSnap = [accumulator awaitEventWithName:@"local event"];
   XCTAssertTrue(localSnap.metadata.hasPendingWrites);
-  XCTAssertEqualObjects(FIRQuerySnapshotGetData(localSnap), (@[ @{ @"a" : @1 }, @{ @"b" : @2 } ]));
+  XCTAssertEqualObjects(FIRQuerySnapshotGetData(localSnap), (@[ @{@"a" : @1}, @{@"b" : @2} ]));
 
   FIRQuerySnapshot *serverSnap = [accumulator awaitEventWithName:@"server event"];
   XCTAssertFalse(serverSnap.metadata.hasPendingWrites);
-  XCTAssertEqualObjects(FIRQuerySnapshotGetData(serverSnap), (@[ @{ @"a" : @1 }, @{ @"b" : @2 } ]));
+  XCTAssertEqualObjects(FIRQuerySnapshotGetData(serverSnap), (@[ @{@"a" : @1}, @{@"b" : @2} ]));
 }
 
 - (void)testBatchesFailAtomicallyRaisingCorrectEvents {
@@ -184,8 +187,8 @@
   // Atomically write 1 document and update a nonexistent document.
   XCTestExpectation *expectation = [self expectationWithDescription:@"batch failed"];
   FIRWriteBatch *batch = [collection.firestore batch];
-  [batch setData:@{ @"a" : @1 } forDocument:docA];
-  [batch updateData:@{ @"b" : @2 } forDocument:docB];
+  [batch setData:@{@"a" : @1} forDocument:docA];
+  [batch updateData:@{@"b" : @2} forDocument:docB];
   [batch commitWithCompletion:^(NSError *_Nullable error) {
     XCTAssertNotNil(error);
     XCTAssertEqualObjects(error.domain, FIRFirestoreErrorDomain);
@@ -196,7 +199,7 @@
   // Local event with the set document.
   FIRQuerySnapshot *localSnap = [accumulator awaitEventWithName:@"local event"];
   XCTAssertTrue(localSnap.metadata.hasPendingWrites);
-  XCTAssertEqualObjects(FIRQuerySnapshotGetData(localSnap), (@[ @{ @"a" : @1 } ]));
+  XCTAssertEqualObjects(FIRQuerySnapshotGetData(localSnap), (@[ @{@"a" : @1} ]));
 
   // Server event with the set reverted.
   FIRQuerySnapshot *serverSnap = [accumulator awaitEventWithName:@"server event"];
@@ -247,7 +250,7 @@
   XCTestExpectation *expectation = [self expectationWithDescription:@"batch written"];
   FIRWriteBatch *batch = [doc.firestore batch];
   [batch deleteDocument:doc];
-  [batch setData:@{ @"a" : @1, @"b" : @1, @"when" : @"when" } forDocument:doc];
+  [batch setData:@{@"a" : @1, @"b" : @1, @"when" : @"when"} forDocument:doc];
   [batch updateData:@{
     @"b" : @2,
     @"when" : [FIRFieldValue fieldValueForServerTimestamp]
@@ -260,12 +263,12 @@
 
   FIRDocumentSnapshot *localSnap = [accumulator awaitEventWithName:@"local event"];
   XCTAssertTrue(localSnap.metadata.hasPendingWrites);
-  XCTAssertEqualObjects(localSnap.data, (@{ @"a" : @1, @"b" : @2, @"when" : [NSNull null] }));
+  XCTAssertEqualObjects(localSnap.data, (@{@"a" : @1, @"b" : @2, @"when" : [NSNull null]}));
 
   FIRDocumentSnapshot *serverSnap = [accumulator awaitEventWithName:@"server event"];
   XCTAssertFalse(serverSnap.metadata.hasPendingWrites);
   NSDate *when = serverSnap[@"when"];
-  XCTAssertEqualObjects(serverSnap.data, (@{ @"a" : @1, @"b" : @2, @"when" : when }));
+  XCTAssertEqualObjects(serverSnap.data, (@{@"a" : @1, @"b" : @2, @"when" : when}));
 }
 
 - (void)testUpdateFieldsWithDots {
@@ -274,10 +277,7 @@
   XCTestExpectation *expectation = [self expectationWithDescription:@"testUpdateFieldsWithDots"];
   FIRWriteBatch *batch = [doc.firestore batch];
   [batch setData:@{@"a.b" : @"old", @"c.d" : @"old"} forDocument:doc];
-  [batch updateData:@{
-    [[FIRFieldPath alloc] initWithFields:@[ @"a.b" ]] : @"new"
-  }
-        forDocument:doc];
+  [batch updateData:@{[[FIRFieldPath alloc] initWithFields:@[ @"a.b" ]] : @"new"} forDocument:doc];
 
   [batch commitWithCompletion:^(NSError *_Nullable error) {
     XCTAssertNil(error);
@@ -320,6 +320,57 @@
     [expectation fulfill];
   }];
 
+  [self awaitExpectations];
+}
+
+// Returns how much memory the test application is currently using, in megabytes (fractional part is
+// truncated), or -1 if the OS call fails.
+// TODO(varconst): move the helper function and the test into a new test target for performance
+// testing.
+int64_t GetCurrentMemoryUsedInMb() {
+  mach_task_basic_info taskInfo;
+  mach_msg_type_number_t taskInfoSize = MACH_TASK_BASIC_INFO_COUNT;
+  const auto errorCode =
+      task_info(mach_task_self(), MACH_TASK_BASIC_INFO, (task_info_t)&taskInfo, &taskInfoSize);
+  if (errorCode == KERN_SUCCESS) {
+    const int bytesInMegabyte = 1024 * 1024;
+    return taskInfo.resident_size / bytesInMegabyte;
+  }
+  return -1;
+}
+
+- (void)testReasonableMemoryUsageForLotsOfMutations {
+  XCTestExpectation *expectation =
+      [self expectationWithDescription:@"testReasonableMemoryUsageForLotsOfMutations"];
+
+  FIRDocumentReference *mainDoc = [self documentRef];
+  FIRWriteBatch *batch = [mainDoc.firestore batch];
+
+  // > 500 mutations will be rejected.
+  const int maxMutations = 500;
+  for (int i = 0; i != maxMutations; ++i) {
+    FIRDocumentReference *nestedDoc = [[mainDoc collectionWithPath:@"nested"] documentWithAutoID];
+    // The exact data doesn't matter; what is important is the large number of mutations.
+    [batch setData:@{
+      @"a" : @"foo",
+      @"b" : @"bar",
+    }
+        forDocument:nestedDoc];
+  }
+
+  const int64_t memoryUsedBeforeCommitMb = GetCurrentMemoryUsedInMb();
+  XCTAssertNotEqual(memoryUsedBeforeCommitMb, -1);
+  [batch commitWithCompletion:^(NSError *_Nullable error) {
+    XCTAssertNil(error);
+    const int64_t memoryUsedAfterCommitMb = GetCurrentMemoryUsedInMb();
+    XCTAssertNotEqual(memoryUsedAfterCommitMb, -1);
+    const int64_t memoryDeltaMb = memoryUsedAfterCommitMb - memoryUsedBeforeCommitMb;
+    // This by its nature cannot be a precise value. Runs on simulator seem to give an increase of
+    // 10MB in debug mode pretty consistently. A regression would be on the scale of 500Mb.
+    XCTAssertLessThan(memoryDeltaMb, 20);
+
+    [expectation fulfill];
+  }];
   [self awaitExpectations];
 }
 

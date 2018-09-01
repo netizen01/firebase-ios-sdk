@@ -19,9 +19,9 @@
 #include <set>
 
 #import "Firestore/Source/Core/FSTQuery.h"
-#import "Firestore/Source/Local/FSTEagerGarbageCollector.h"
 #import "Firestore/Source/Local/FSTPersistence.h"
 #import "Firestore/Source/Local/FSTQueryData.h"
+#import "Firestore/Source/Util/FSTClasses.h"
 
 #import "Firestore/Example/Tests/Util/FSTHelpers.h"
 #import "Firestore/third_party/Immutable/Tests/FSTImmutableSortedSet+Testing.h"
@@ -31,15 +31,17 @@
 
 namespace testutil = firebase::firestore::testutil;
 using firebase::firestore::model::DocumentKey;
-using firebase::firestore::model::SnapshotVersion;
 using firebase::firestore::model::DocumentKeySet;
+using firebase::firestore::model::ListenSequenceNumber;
+using firebase::firestore::model::SnapshotVersion;
+using firebase::firestore::model::TargetId;
 
 NS_ASSUME_NONNULL_BEGIN
 
 @implementation FSTQueryCacheTests {
   FSTQuery *_queryRooms;
-  FSTListenSequenceNumber _previousSequenceNumber;
-  FSTTargetID _previousTargetID;
+  ListenSequenceNumber _previousSequenceNumber;
+  TargetId _previousTargetID;
   FSTTestSnapshotVersion _previousSnapshotVersion;
 }
 
@@ -50,6 +52,10 @@ NS_ASSUME_NONNULL_BEGIN
   _previousSequenceNumber = 1000;
   _previousTargetID = 500;
   _previousSnapshotVersion = 100;
+}
+
+- (void)tearDown {
+  [self.persistence shutdown];
 }
 
 /**
@@ -232,41 +238,6 @@ NS_ASSUME_NONNULL_BEGIN
   });
 }
 
-- (void)testRemoveEmitsGarbageEvents {
-  if ([self isTestBaseClass]) return;
-
-  self.persistence.run("testRemoveEmitsGarbageEvents", [&]() {
-    FSTEagerGarbageCollector *garbageCollector = [[FSTEagerGarbageCollector alloc] init];
-    [garbageCollector addGarbageSource:self.queryCache];
-    XCTAssertEqual([garbageCollector collectGarbage], std::set<DocumentKey>({}));
-
-    FSTQueryData *rooms = [self queryDataWithQuery:FSTTestQuery("rooms")];
-    DocumentKey room1 = testutil::Key("rooms/bar");
-    DocumentKey room2 = testutil::Key("rooms/foo");
-    [self.queryCache addQueryData:rooms];
-    [self addMatchingKey:room1 forTargetID:rooms.targetID];
-    [self addMatchingKey:room2 forTargetID:rooms.targetID];
-
-    FSTQueryData *halls = [self queryDataWithQuery:FSTTestQuery("halls")];
-    DocumentKey hall1 = testutil::Key("halls/bar");
-    DocumentKey hall2 = testutil::Key("halls/foo");
-    [self.queryCache addQueryData:halls];
-    [self addMatchingKey:hall1 forTargetID:halls.targetID];
-    [self addMatchingKey:hall2 forTargetID:halls.targetID];
-
-    XCTAssertEqual([garbageCollector collectGarbage], std::set<DocumentKey>({}));
-
-    [self removeMatchingKey:room1 forTargetID:rooms.targetID];
-    XCTAssertEqual([garbageCollector collectGarbage], std::set<DocumentKey>({room1}));
-
-    [self.queryCache removeQueryData:rooms];
-    XCTAssertEqual([garbageCollector collectGarbage], std::set<DocumentKey>({room2}));
-
-    [self.queryCache removeMatchingKeysForTargetID:halls.targetID];
-    XCTAssertEqual([garbageCollector collectGarbage], std::set<DocumentKey>({hall1, hall2}));
-  });
-}
-
 - (void)testMatchingKeysForTargetID {
   if ([self isTestBaseClass]) return;
 
@@ -304,11 +275,10 @@ NS_ASSUME_NONNULL_BEGIN
     [self.queryCache addQueryData:query2];
     XCTAssertEqual([self.queryCache highestListenSequenceNumber], 20);
 
-    // TargetIDs never come down.
+    // Sequence numbers never come down.
     [self.queryCache removeQueryData:query2];
     XCTAssertEqual([self.queryCache highestListenSequenceNumber], 20);
 
-    // A query with an empty result set still counts.
     FSTQueryData *query3 = [[FSTQueryData alloc] initWithQuery:FSTTestQuery("garages")
                                                       targetID:42
                                           listenSequenceNumber:100
@@ -320,13 +290,6 @@ NS_ASSUME_NONNULL_BEGIN
     XCTAssertEqual([self.queryCache highestListenSequenceNumber], 100);
 
     [self.queryCache removeQueryData:query3];
-    XCTAssertEqual([self.queryCache highestListenSequenceNumber], 100);
-  });
-
-  // Verify that the highestTargetID even survives restarts.
-  self.persistence.run("testHighestListenSequenceNumber restart", [&]() {
-    self.queryCache = [self.persistence queryCache];
-    [self.queryCache start];
     XCTAssertEqual([self.queryCache highestListenSequenceNumber], 100);
   });
 }
@@ -374,13 +337,6 @@ NS_ASSUME_NONNULL_BEGIN
     [self.queryCache removeQueryData:query3];
     XCTAssertEqual([self.queryCache highestTargetID], 42);
   });
-
-  // Verify that the highestTargetID even survives restarts.
-  self.persistence.run("testHighestTargetID restart", [&]() {
-    self.queryCache = [self.persistence queryCache];
-    [self.queryCache start];
-    XCTAssertEqual([self.queryCache highestTargetID], 42);
-  });
 }
 
 - (void)testLastRemoteSnapshotVersion {
@@ -391,13 +347,6 @@ NS_ASSUME_NONNULL_BEGIN
 
     // Can set the snapshot version.
     [self.queryCache setLastRemoteSnapshotVersion:testutil::Version(42)];
-    XCTAssertEqual([self.queryCache lastRemoteSnapshotVersion], testutil::Version(42));
-  });
-
-  // Snapshot version persists restarts.
-  self.queryCache = [self.persistence queryCache];
-  self.persistence.run("testLastRemoteSnapshotVersion restart", [&]() {
-    [self.queryCache start];
     XCTAssertEqual([self.queryCache lastRemoteSnapshotVersion], testutil::Version(42));
   });
 }
@@ -416,8 +365,8 @@ NS_ASSUME_NONNULL_BEGIN
 }
 
 - (FSTQueryData *)queryDataWithQuery:(FSTQuery *)query
-                            targetID:(FSTTargetID)targetID
-                listenSequenceNumber:(FSTListenSequenceNumber)sequenceNumber
+                            targetID:(TargetId)targetID
+                listenSequenceNumber:(ListenSequenceNumber)sequenceNumber
                              version:(FSTTestSnapshotVersion)version {
   NSData *resumeToken = FSTTestResumeTokenFromSnapshotVersion(version);
   return [[FSTQueryData alloc] initWithQuery:query
@@ -428,12 +377,12 @@ NS_ASSUME_NONNULL_BEGIN
                                  resumeToken:resumeToken];
 }
 
-- (void)addMatchingKey:(const DocumentKey &)key forTargetID:(FSTTargetID)targetID {
+- (void)addMatchingKey:(const DocumentKey &)key forTargetID:(TargetId)targetID {
   DocumentKeySet keys{key};
   [self.queryCache addMatchingKeys:keys forTargetID:targetID];
 }
 
-- (void)removeMatchingKey:(const DocumentKey &)key forTargetID:(FSTTargetID)targetID {
+- (void)removeMatchingKey:(const DocumentKey &)key forTargetID:(TargetId)targetID {
   DocumentKeySet keys{key};
   [self.queryCache removeMatchingKeys:keys forTargetID:targetID];
 }
