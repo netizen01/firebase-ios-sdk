@@ -35,8 +35,6 @@
 #include "Firestore/core/src/firebase/firestore/model/transform_operations.h"
 #include "Firestore/core/src/firebase/firestore/util/hard_assert.h"
 
-#include "absl/types/optional.h"
-
 using firebase::firestore::model::ArrayTransform;
 using firebase::firestore::model::DocumentKey;
 using firebase::firestore::model::FieldMask;
@@ -46,16 +44,17 @@ using firebase::firestore::model::Precondition;
 using firebase::firestore::model::ServerTimestampTransform;
 using firebase::firestore::model::SnapshotVersion;
 using firebase::firestore::model::TransformOperation;
+using firebase::firestore::util::Hash;
 
 NS_ASSUME_NONNULL_BEGIN
 
 #pragma mark - FSTMutationResult
 
 @implementation FSTMutationResult {
-  absl::optional<SnapshotVersion> _version;
+  SnapshotVersion _version;
 }
 
-- (instancetype)initWithVersion:(absl::optional<SnapshotVersion>)version
+- (instancetype)initWithVersion:(SnapshotVersion)version
                transformResults:(nullable NSArray<FSTFieldValue *> *)transformResults {
   if (self = [super init]) {
     _version = std::move(version);
@@ -64,7 +63,7 @@ NS_ASSUME_NONNULL_BEGIN
   return self;
 }
 
-- (const absl::optional<SnapshotVersion> &)version {
+- (const SnapshotVersion &)version {
   return _version;
 }
 
@@ -85,18 +84,15 @@ NS_ASSUME_NONNULL_BEGIN
   return self;
 }
 
-- (nullable FSTMaybeDocument *)applyTo:(nullable FSTMaybeDocument *)maybeDoc
-                          baseDocument:(nullable FSTMaybeDocument *)baseDoc
-                        localWriteTime:(FIRTimestamp *)localWriteTime
-                        mutationResult:(nullable FSTMutationResult *)mutationResult {
+- (nullable FSTMaybeDocument *)applyToRemoteDocument:(nullable FSTMaybeDocument *)maybeDoc
+                                      mutationResult:(FSTMutationResult *)mutationResult {
   @throw FSTAbstractMethodException();  // NOLINT
 }
 
-- (nullable FSTMaybeDocument *)applyTo:(nullable FSTMaybeDocument *)maybeDoc
-                          baseDocument:(nullable FSTMaybeDocument *)baseDoc
-                        localWriteTime:(nullable FIRTimestamp *)localWriteTime {
-  return
-      [self applyTo:maybeDoc baseDocument:baseDoc localWriteTime:localWriteTime mutationResult:nil];
+- (nullable FSTMaybeDocument *)applyToLocalDocument:(nullable FSTMaybeDocument *)maybeDoc
+                                       baseDocument:(nullable FSTMaybeDocument *)baseDoc
+                                     localWriteTime:(FIRTimestamp *)localWriteTime {
+  @throw FSTAbstractMethodException();  // NOLINT
 }
 
 - (const DocumentKey &)key {
@@ -142,31 +138,22 @@ NS_ASSUME_NONNULL_BEGIN
 }
 
 - (NSUInteger)hash {
-  NSUInteger result = [self.key hash];
-  result = 31 * result + self.precondition.Hash();
-  result = 31 * result + [self.value hash];
-  return result;
+  return Hash(self.key, self.precondition, [self.value hash]);
 }
 
-- (nullable FSTMaybeDocument *)applyTo:(nullable FSTMaybeDocument *)maybeDoc
-                          baseDocument:(nullable FSTMaybeDocument *)baseDoc
-                        localWriteTime:(FIRTimestamp *)localWriteTime
-                        mutationResult:(nullable FSTMutationResult *)mutationResult {
-  if (mutationResult) {
-    HARD_ASSERT(!mutationResult.transformResults, "Transform results received by FSTSetMutation.");
-  }
-
+- (nullable FSTMaybeDocument *)applyToLocalDocument:(nullable FSTMaybeDocument *)maybeDoc
+                                       baseDocument:(nullable FSTMaybeDocument *)baseDoc
+                                     localWriteTime:(FIRTimestamp *)localWriteTime {
   if (!self.precondition.IsValidFor(maybeDoc)) {
     return maybeDoc;
   }
 
-  BOOL hasLocalMutations = (mutationResult == nil);
   if (!maybeDoc || [maybeDoc isMemberOfClass:[FSTDeletedDocument class]]) {
     // If the document didn't exist before, create it.
     return [FSTDocument documentWithData:self.value
                                      key:self.key
                                  version:SnapshotVersion::None()
-                       hasLocalMutations:hasLocalMutations];
+                       hasLocalMutations:YES];
   }
 
   HARD_ASSERT([maybeDoc isMemberOfClass:[FSTDocument class]], "Unknown MaybeDocument type %s",
@@ -177,7 +164,36 @@ NS_ASSUME_NONNULL_BEGIN
   return [FSTDocument documentWithData:self.value
                                    key:doc.key
                                version:doc.version
-                     hasLocalMutations:hasLocalMutations];
+                     hasLocalMutations:YES];
+}
+
+- (nullable FSTMaybeDocument *)applyToRemoteDocument:(nullable FSTMaybeDocument *)maybeDoc
+                                      mutationResult:(FSTMutationResult *)mutationResult {
+  if (mutationResult) {
+    HARD_ASSERT(!mutationResult.transformResults, "Transform results received by FSTSetMutation.");
+  }
+
+  if (!self.precondition.IsValidFor(maybeDoc)) {
+    return maybeDoc;
+  }
+
+  if (!maybeDoc || [maybeDoc isMemberOfClass:[FSTDeletedDocument class]]) {
+    // If the document didn't exist before, create it.
+    return [FSTDocument documentWithData:self.value
+                                     key:self.key
+                                 version:SnapshotVersion::None()
+                       hasLocalMutations:NO];
+  }
+
+  HARD_ASSERT([maybeDoc isMemberOfClass:[FSTDocument class]], "Unknown MaybeDocument type %s",
+              [maybeDoc class]);
+  FSTDocument *doc = (FSTDocument *)maybeDoc;
+
+  HARD_ASSERT(doc.key == self.key, "Can only set a document with the same key");
+  return [FSTDocument documentWithData:self.value
+                                   key:doc.key
+                               version:doc.version
+                     hasLocalMutations:NO];
 }
 @end
 
@@ -218,11 +234,7 @@ NS_ASSUME_NONNULL_BEGIN
 }
 
 - (NSUInteger)hash {
-  NSUInteger result = [self.key hash];
-  result = 31 * result + self.precondition.Hash();
-  result = 31 * result + self.fieldMask.Hash();
-  result = 31 * result + [self.value hash];
-  return result;
+  return Hash(self.key, self.precondition, self.fieldMask, [self.value hash]);
 }
 
 - (NSString *)description {
@@ -231,14 +243,37 @@ NS_ASSUME_NONNULL_BEGIN
                                     self.value, self.precondition.description()];
 }
 
-- (nullable FSTMaybeDocument *)applyTo:(nullable FSTMaybeDocument *)maybeDoc
-                          baseDocument:(nullable FSTMaybeDocument *)baseDoc
-                        localWriteTime:(FIRTimestamp *)localWriteTime
-                        mutationResult:(nullable FSTMutationResult *)mutationResult {
-  if (mutationResult) {
-    HARD_ASSERT(!mutationResult.transformResults,
-                "Transform results received by FSTPatchMutation.");
+- (nullable FSTMaybeDocument *)applyToLocalDocument:(nullable FSTMaybeDocument *)maybeDoc
+                                       baseDocument:(nullable FSTMaybeDocument *)baseDoc
+                                     localWriteTime:(FIRTimestamp *)localWriteTime {
+  if (!self.precondition.IsValidFor(maybeDoc)) {
+    return maybeDoc;
   }
+
+  if (!maybeDoc || [maybeDoc isMemberOfClass:[FSTDeletedDocument class]]) {
+    // Precondition applied, so create the document if necessary
+    const DocumentKey &key = maybeDoc ? maybeDoc.key : self.key;
+    SnapshotVersion version = maybeDoc ? maybeDoc.version : SnapshotVersion::None();
+    maybeDoc = [FSTDocument documentWithData:[FSTObjectValue objectValue]
+                                         key:key
+                                     version:std::move(version)
+                           hasLocalMutations:YES];
+  }
+
+  HARD_ASSERT([maybeDoc isMemberOfClass:[FSTDocument class]], "Unknown MaybeDocument type %s",
+              [maybeDoc class]);
+  FSTDocument *doc = (FSTDocument *)maybeDoc;
+
+  HARD_ASSERT(doc.key == self.key, "Can only patch a document with the same key");
+
+  FSTObjectValue *newData = [self patchObjectValue:doc.data];
+  return
+      [FSTDocument documentWithData:newData key:doc.key version:doc.version hasLocalMutations:YES];
+}
+
+- (nullable FSTMaybeDocument *)applyToRemoteDocument:(nullable FSTMaybeDocument *)maybeDoc
+                                      mutationResult:(FSTMutationResult *)mutationResult {
+  HARD_ASSERT(!mutationResult.transformResults, "Transform results received by FSTPatchMutation.");
 
   if (!self.precondition.IsValidFor(maybeDoc)) {
     return maybeDoc;
@@ -271,11 +306,13 @@ NS_ASSUME_NONNULL_BEGIN
 - (FSTObjectValue *)patchObjectValue:(FSTObjectValue *)objectValue {
   FSTObjectValue *result = objectValue;
   for (const FieldPath &fieldPath : self.fieldMask) {
-    FSTFieldValue *newValue = [self.value valueForPath:fieldPath];
-    if (newValue) {
-      result = [result objectBySettingValue:newValue forPath:fieldPath];
-    } else {
-      result = [result objectByDeletingPath:fieldPath];
+    if (!fieldPath.empty()) {
+      FSTFieldValue *newValue = [self.value valueForPath:fieldPath];
+      if (newValue) {
+        result = [result objectBySettingValue:newValue forPath:fieldPath];
+      } else {
+        result = [result objectByDeletingPath:fieldPath];
+      }
     }
   }
   return result;
@@ -317,7 +354,7 @@ NS_ASSUME_NONNULL_BEGIN
 }
 
 - (NSUInteger)hash {
-  NSUInteger result = [self.key hash];
+  NSUInteger result = self.key.Hash();
   result = 31 * result + self.precondition.Hash();
   for (const auto &transform : self.fieldTransforms) {
     result = 31 * result + transform.Hash();
@@ -335,14 +372,32 @@ NS_ASSUME_NONNULL_BEGIN
                                     self.precondition.description()];
 }
 
-- (nullable FSTMaybeDocument *)applyTo:(nullable FSTMaybeDocument *)maybeDoc
-                          baseDocument:(nullable FSTMaybeDocument *)baseDoc
-                        localWriteTime:(FIRTimestamp *)localWriteTime
-                        mutationResult:(nullable FSTMutationResult *)mutationResult {
-  if (mutationResult) {
-    HARD_ASSERT(mutationResult.transformResults,
-                "Transform results missing for FSTTransformMutation.");
+- (nullable FSTMaybeDocument *)applyToLocalDocument:(nullable FSTMaybeDocument *)maybeDoc
+                                       baseDocument:(nullable FSTMaybeDocument *)baseDoc
+                                     localWriteTime:(FIRTimestamp *)localWriteTime {
+  if (!self.precondition.IsValidFor(maybeDoc)) {
+    return maybeDoc;
   }
+
+  // We only support transforms with precondition exists, so we can only apply it to an existing
+  // document
+  HARD_ASSERT([maybeDoc isMemberOfClass:[FSTDocument class]], "Unknown MaybeDocument type %s",
+              [maybeDoc class]);
+  FSTDocument *doc = (FSTDocument *)maybeDoc;
+
+  HARD_ASSERT(doc.key == self.key, "Can only transform a document with the same key");
+
+  NSArray<FSTFieldValue *> *transformResults =
+      [self localTransformResultsWithBaseDocument:baseDoc writeTime:localWriteTime];
+  FSTObjectValue *newData = [self transformObject:doc.data transformResults:transformResults];
+  return
+      [FSTDocument documentWithData:newData key:doc.key version:doc.version hasLocalMutations:YES];
+}
+
+- (nullable FSTMaybeDocument *)applyToRemoteDocument:(nullable FSTMaybeDocument *)maybeDoc
+                                      mutationResult:(FSTMutationResult *)mutationResult {
+  HARD_ASSERT(mutationResult.transformResults,
+              "Transform results missing for FSTTransformMutation.");
 
   if (!self.precondition.IsValidFor(maybeDoc)) {
     return maybeDoc;
@@ -356,21 +411,13 @@ NS_ASSUME_NONNULL_BEGIN
 
   HARD_ASSERT(doc.key == self.key, "Can only transform a document with the same key");
 
-  BOOL hasLocalMutations = (mutationResult == nil);
-  NSArray<FSTFieldValue *> *transformResults;
-  if (mutationResult) {
-    transformResults =
-        [self serverTransformResultsWithBaseDocument:baseDoc
-                              serverTransformResults:mutationResult.transformResults];
-  } else {
-    transformResults =
-        [self localTransformResultsWithBaseDocument:baseDoc writeTime:localWriteTime];
-  }
+  NSArray<FSTFieldValue *> *transformResults =
+      [self serverTransformResultsWithBaseDocument:maybeDoc
+                            serverTransformResults:mutationResult.transformResults];
+
   FSTObjectValue *newData = [self transformObject:doc.data transformResults:transformResults];
-  return [FSTDocument documentWithData:newData
-                                   key:doc.key
-                               version:doc.version
-                     hasLocalMutations:hasLocalMutations];
+  return
+      [FSTDocument documentWithData:newData key:doc.key version:doc.version hasLocalMutations:NO];
 }
 
 /**
@@ -463,9 +510,7 @@ NS_ASSUME_NONNULL_BEGIN
 }
 
 - (NSUInteger)hash {
-  NSUInteger result = [self.key hash];
-  result = 31 * result + self.precondition.Hash();
-  return result;
+  return Hash(self.key, self.precondition);
 }
 
 - (NSString *)description {
@@ -473,10 +518,22 @@ NS_ASSUME_NONNULL_BEGIN
                                     self.key.ToString().c_str(), self.precondition.description()];
 }
 
-- (nullable FSTMaybeDocument *)applyTo:(nullable FSTMaybeDocument *)maybeDoc
-                          baseDocument:(nullable FSTMaybeDocument *)baseDoc
-                        localWriteTime:(FIRTimestamp *)localWriteTime
-                        mutationResult:(nullable FSTMutationResult *)mutationResult {
+- (nullable FSTMaybeDocument *)applyToLocalDocument:(nullable FSTMaybeDocument *)maybeDoc
+                                       baseDocument:(nullable FSTMaybeDocument *)baseDoc
+                                     localWriteTime:(FIRTimestamp *)localWriteTime {
+  if (!self.precondition.IsValidFor(maybeDoc)) {
+    return maybeDoc;
+  }
+
+  if (maybeDoc) {
+    HARD_ASSERT(maybeDoc.key == self.key, "Can only delete a document with the same key");
+  }
+
+  return [FSTDeletedDocument documentWithKey:self.key version:SnapshotVersion::None()];
+}
+
+- (nullable FSTMaybeDocument *)applyToRemoteDocument:(nullable FSTMaybeDocument *)maybeDoc
+                                      mutationResult:(FSTMutationResult *)mutationResult {
   if (mutationResult) {
     HARD_ASSERT(!mutationResult.transformResults,
                 "Transform results received by FSTDeleteMutation.");
