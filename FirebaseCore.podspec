@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name             = 'FirebaseCore'
-  s.version          = '5.0.0'
+  s.version          = '5.1.6'
   s.summary          = 'Firebase Core for iOS (plus community support for macOS and tvOS)'
 
   s.description      = <<-DESC
@@ -26,14 +26,13 @@ Firebase Core includes FIRApp and FIROptions which provide central configuration
 
   s.source_files = 'Firebase/Core/**/*.[mh]'
   s.public_header_files = 'Firebase/Core/Public/*.h', 'Firebase/Core/Private/*.h'
-  s.private_header_files = 'Firebase/Core/Private/*.h', 'Firebase/Core/third_party/*.h'
-  s.frameworks = [
-    'Foundation',
-    'SystemConfiguration'
-  ]
-  s.dependency 'GoogleToolboxForMac/NSData+zlib', '~> 2.1'
+  s.private_header_files = 'Firebase/Core/Private/*.h'
+  s.framework = 'Foundation'
+  s.dependency 'GoogleUtilities/Logger', '~> 5.2'
   s.pod_target_xcconfig = {
-    'OTHER_CFLAGS' => '-fno-autolink ' +
-      '-DFIRCore_VERSION=' + s.version.to_s + ' -DFirebase_VERSION=5.0.0'
+    'GCC_C_LANGUAGE_STANDARD' => 'c99',
+    'GCC_PREPROCESSOR_DEFINITIONS' =>
+      'FIRCore_VERSION=' + s.version.to_s + ' Firebase_VERSION=5.11.0',
+    'OTHER_CFLAGS' => '-fno-autolink'
   }
 end

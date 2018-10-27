@@ -20,11 +20,21 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+@class FSTLocalSerializer;
+@class FSTMemoryPersistence;
+
 /**
  * An implementation of the FSTQueryCache protocol that merely keeps queries in memory, suitable
  * for online only clients with persistence disabled.
  */
 @interface FSTMemoryQueryCache : NSObject <FSTQueryCache>
+
+- (instancetype)initWithPersistence:(FSTMemoryPersistence *)persistence NS_DESIGNATED_INITIALIZER;
+
+- (instancetype)init NS_UNAVAILABLE;
+
+- (size_t)byteSizeWithSerializer:(FSTLocalSerializer *)serializer;
+
 @end
 
 NS_ASSUME_NONNULL_END

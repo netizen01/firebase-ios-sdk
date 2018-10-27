@@ -15,31 +15,111 @@
 set(CMAKE_CXX_EXTENSIONS ON)
 
 # Required to allow 0 length printf style strings for testing purposes.
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-format-zero-length")
+if(NOT MSVC)
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-format-zero-length")
+endif()
 
-## assert and log
+
+## async
+
+cc_test(
+  firebase_firestore_util_async_std_test
+  SOURCES
+    async_queue_std_test.cc
+    async_queue_test.cc
+    async_queue_test.h
+    async_tests_util.h
+    executor_std_test.cc
+    executor_test.cc
+    executor_test.h
+  DEPENDS
+    firebase_firestore_util_async_std
+)
+
+if(HAVE_LIBDISPATCH)
+  cc_test(
+    firebase_firestore_util_async_libdispatch_test
+    SOURCES
+      async_queue_libdispatch_test.mm
+      async_queue_test.cc
+      async_queue_test.h
+      async_tests_util.h
+      executor_libdispatch_test.mm
+      executor_test.cc
+      executor_test.h
+    DEPENDS
+      firebase_firestore_util_async_libdispatch
+  )
+endif()
+
+
+## base
 
 if(APPLE)
   cc_test(
-    firebase_firestore_util_log_apple_test
+    firebase_firestore_util_base_apple_test
     SOURCES
-      assert_test.cc
+      hard_assert_test.cc
       log_test.cc
+      string_apple_test.mm
     DEPENDS
-      firebase_firestore_util_log_apple
+      firebase_firestore_util_base_apple
   )
 endif(APPLE)
 
 cc_test(
-  firebase_firestore_util_log_stdio_test
+  firebase_firestore_util_base_stdio_test
   SOURCES
-    assert_test.cc
+    hard_assert_test.cc
     log_test.cc
   DEPENDS
-    firebase_firestore_util_log_stdio
+    firebase_firestore_util_base_stdio
 )
 
-## secure random
+
+## filesystem
+
+if(APPLE)
+  cc_test(
+    firebase_firestore_util_filesystem_apple_test
+    SOURCES
+      filesystem_test.cc
+      path_test.cc
+    DEPENDS
+      absl_optional
+      firebase_firestore_util_autoid
+      firebase_firestore_util_filesystem_apple
+  )
+endif()
+
+if(NOT APPLE AND NOT WIN32)
+  cc_test(
+    firebase_firestore_util_filesystem_posix_test
+    SOURCES
+      filesystem_test.cc
+      path_test.cc
+    DEPENDS
+      absl_optional
+      firebase_firestore_util_autoid
+      firebase_firestore_util_filesystem_posix
+  )
+endif()
+
+if(WIN32)
+  cc_test(
+    firebase_firestore_util_filesystem_win_test
+    SOURCES
+      filesystem_test.cc
+      path_test.cc
+    DEPENDS
+      absl_optional
+      firebase_firestore_util_autoid
+      firebase_firestore_util_filesystem_win
+  )
+endif()
+
+
+## random
 
 if(HAVE_ARC4RANDOM)
   cc_test(
@@ -61,6 +141,7 @@ if(HAVE_OPENSSL_RAND_H)
   )
 endif()
 
+
 ## main library
 
 cc_test(
@@ -69,16 +150,21 @@ cc_test(
     autoid_test.cc
     bits_test.cc
     comparison_test.cc
+    hashing_test.cc
     iterator_adaptors_test.cc
     ordered_code_test.cc
     status_test.cc
     status_test_util.h
     statusor_test.cc
-    string_printf_test.cc
+    strerror_test.cc
+    string_format_apple_test.mm
+    string_format_test.cc
     string_util_test.cc
+    string_win_test.cc
+    type_traits_apple_test.mm
   DEPENDS
     absl_base
     absl_strings
     firebase_firestore_util
-    gmock
+    GMock::GMock
 )

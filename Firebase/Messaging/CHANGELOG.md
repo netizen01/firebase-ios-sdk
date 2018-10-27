@@ -1,3 +1,43 @@
+# 2018-10-25 -- v3.2.1
+- Fixed an issue where messages failed to be delivered to the recipient's time zone. (#1946)
+- Internal code cleanup.
+
+# 2018-10-09 -- v3.2.0
+- Now you can access the message ID of FIRMessagingRemoteMessage object. (#1861)
+- Add a new boolean value useFIRMessagingDelegateForDirectMessageDelivery if you
+  want all your direct channel data messages to be delivered in
+  FIRMessagingDelegate. If you don't use the new flag, for iOS 10 and above,
+  direct channel data messages are delivered in
+  `FIRMessagingDelegate messaging:didReceiveMessage:`; for iOS 9 and below,
+  direct channel data messages are delivered in Apple's
+  `AppDelegate application:didReceiveRemoteNotification:fetchCompletionHandler:`.
+  So if you set the useFIRMessagingDelegateForDirectMessageDelivery to true,
+  direct channel data messages are delivered in FIRMessagingDelegate across all
+  iOS versions. (#1875)
+- Fix an issue that callback is not triggered when topic name is invalid. (#1880)
+
+# 2018-08-28 -- v3.1.1
+- Ensure NSUserDefaults is persisted properly before app close. (#1646)
+- Internal code cleanup. (#1666)
+
+# 2018-07-31 -- v3.1.0
+- Added support for global Firebase data collection flag. (#1219)
+- Fixed an issue where Messaging wouldn't properly unswizzle swizzled delegate
+  methods. (#1481)
+- Fixed an issue that Messaging doesn't compile inside app extension. (#1503)
+
+# 2018-07-10 -- v3.0.3
+- Fixed an issue that client should suspend the topic requests when token is not available and resume the topic operation when the token is generated.
+- Corrected the deprecation warning when subscribing to or unsubscribing from an invalid topic. (#1397)
+- Removed unused heart beat time stamp tracking.
+
+# 2018-06-12 -- v3.0.2
+- Added a warning message when subscribing to topics with incorrect name formats.
+- Silenced a deprecation warning in FIRMessaging.
+
+# 2018-05-29 -- v3.0.1
+- Clean up a few deprecation warnings.
+
 # 2018-05-08 -- v3.0.0
 - Remove deprecated delegate property `remoteMessageDelegate`, please use `delegate` instead.
 - Remove deprecated method `messaging:didRefreshRegistrationToken:` defined in FIRMessagingDelegate protocol, please use `messaging:didReceiveRegistrationToken:` instead.

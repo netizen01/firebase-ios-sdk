@@ -18,7 +18,6 @@
 #import <XCTest/XCTest.h>
 
 #import "Firestore/Example/Tests/Util/XCTestCase+Await.h"
-#import "Firestore/Source/Core/FSTTypes.h"
 
 #import "FIRFirestoreSource.h"
 
@@ -90,6 +89,10 @@ extern "C" {
 - (void)deleteDocumentRef:(FIRDocumentReference *)ref;
 
 - (void)mergeDocumentRef:(FIRDocumentReference *)ref data:(NSDictionary<NSString *, id> *)data;
+
+- (void)mergeDocumentRef:(FIRDocumentReference *)ref
+                    data:(NSDictionary<NSString *, id> *)data
+                  fields:(NSArray<id> *)fields;
 
 - (void)disableNetwork;
 

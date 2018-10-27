@@ -19,7 +19,6 @@
 #import <XCTest/XCTest.h>
 
 #import "Firestore/Source/API/FIRFieldValue+Internal.h"
-#import "Firestore/Source/API/FIRQuery+Internal.h"
 
 #import "Firestore/Example/Tests/Util/FSTHelpers.h"
 #import "Firestore/Example/Tests/Util/FSTIntegrationTestCase.h"
@@ -51,7 +50,7 @@
 
 - (void)testChangingSettingsAfterUseFails {
   FIRFirestoreSettings *settings = self.db.settings;
-  [[self.db documentWithPath:@"foo/bar"] setData:@{ @"a" : @42 }];
+  [[self.db documentWithPath:@"foo/bar"] setData:@{@"a" : @42}];
   settings.host = @"example.com";
   FSTAssertThrows(self.db.settings = settings,
                   @"Firestore instance has already been started and its settings can no longer be "
@@ -77,13 +76,13 @@
                                         }],
                   @"Transaction block cannot be nil.");
 
-  FSTAssertThrows(
-      [self.db runTransactionWithBlock:^id(FIRTransaction *transaction, NSError **pError) {
-        XCTFail(@"Transaction block shouldn't run.");
-        return nil;
-      }
-                            completion:nil],
-      @"Transaction completion block cannot be nil.");
+  FSTAssertThrows([self.db
+                      runTransactionWithBlock:^id(FIRTransaction *transaction, NSError **pError) {
+                        XCTFail(@"Transaction block shouldn't run.");
+                        return nil;
+                      }
+                                   completion:nil],
+                  @"Transaction completion block cannot be nil.");
 }
 
 #pragma mark - Collection and Document Path Validation
@@ -172,7 +171,7 @@
 }
 
 - (void)testWritesWithIndirectlyNestedArraysSucceed {
-  NSDictionary<NSString *, id> *data = @{ @"nested-array" : @[ @1, @{ @"foo" : @[ @2 ] } ] };
+  NSDictionary<NSString *, id> *data = @{@"nested-array" : @[ @1, @{@"foo" : @[ @2 ]} ]};
 
   FIRDocumentReference *ref = [self documentRef];
   FIRDocumentReference *ref2 = [self documentRef];
@@ -210,12 +209,13 @@
   [self awaitExpectations];
 
   XCTestExpectation *transactionDone = [self expectationWithDescription:@"transaction done"];
-  [ref.firestore runTransactionWithBlock:^id(FIRTransaction *transaction, NSError **pError) {
-    // Note ref2 does not exist at this point so set that and update ref.
-    [transaction updateData:data forDocument:ref];
-    [transaction setData:data forDocument:ref2];
-    return nil;
-  }
+  [ref.firestore
+      runTransactionWithBlock:^id(FIRTransaction *transaction, NSError **pError) {
+        // Note ref2 does not exist at this point so set that and update ref.
+        [transaction updateData:data forDocument:ref];
+        [transaction setData:data forDocument:ref2];
+        return nil;
+      }
       completion:^(id result, NSError *error) {
         // ends up being a no-op transaction.
         XCTAssertNil(error);
@@ -303,7 +303,7 @@
   XCTAssertNotEqual(db1, db2);
 
   NSString *reason = @"Provided document reference is from a different Firestore instance.";
-  id data = @{ @"foo" : @1 };
+  id data = @{@"foo" : @1};
   FIRDocumentReference *badRef = [db2 documentWithPath:@"foo/bar"];
   FIRWriteBatch *batch = [db1 batch];
   FSTAssertThrows([batch setData:data forDocument:badRef], reason);
@@ -318,18 +318,19 @@
   XCTAssertNotEqual(db1, db2);
 
   NSString *reason = @"Provided document reference is from a different Firestore instance.";
-  id data = @{ @"foo" : @1 };
+  id data = @{@"foo" : @1};
   FIRDocumentReference *badRef = [db2 documentWithPath:@"foo/bar"];
 
   XCTestExpectation *transactionDone = [self expectationWithDescription:@"transaction done"];
-  [db1 runTransactionWithBlock:^id(FIRTransaction *txn, NSError **pError) {
-    FSTAssertThrows([txn getDocument:badRef error:nil], reason);
-    FSTAssertThrows([txn setData:data forDocument:badRef], reason);
-    FSTAssertThrows([txn setData:data forDocument:badRef merge:YES], reason);
-    FSTAssertThrows([txn updateData:data forDocument:badRef], reason);
-    FSTAssertThrows([txn deleteDocument:badRef], reason);
-    return nil;
-  }
+  [db1
+      runTransactionWithBlock:^id(FIRTransaction *txn, NSError **pError) {
+        FSTAssertThrows([txn getDocument:badRef error:nil], reason);
+        FSTAssertThrows([txn setData:data forDocument:badRef], reason);
+        FSTAssertThrows([txn setData:data forDocument:badRef merge:YES], reason);
+        FSTAssertThrows([txn updateData:data forDocument:badRef], reason);
+        FSTAssertThrows([txn deleteDocument:badRef], reason);
+        return nil;
+      }
       completion:^(id result, NSError *error) {
         // ends up being a no-op transaction.
         XCTAssertNil(error);
@@ -507,8 +508,8 @@
   FSTAssertThrows([collection queryWhereFieldPath:[FIRFieldPath documentID] isEqualTo:@1], reason);
 
   reason =
-      @"Invalid query. You can't do arrayContains queries on document ID since document IDs are "
-      @"not arrays.";
+      @"Invalid query. You can't perform arrayContains queries on document ID since document IDs "
+       "are not arrays.";
   FSTAssertThrows([collection queryWhereFieldPath:[FIRFieldPath documentID] arrayContains:@1],
                   reason);
 }
@@ -555,6 +556,13 @@
                    @"equality different than orderBy works.");
   XCTAssertNoThrow([[coll queryOrderedByField:@"x"] queryWhereField:@"y" arrayContains:@"cat"],
                    @"array_contains different than orderBy works.");
+}
+
+- (void)testQueryMustNotHaveMultipleArrayContainsFilters {
+  FIRCollectionReference *coll = [self.db collectionWithPath:@"collection"];
+  FSTAssertThrows(
+      [[coll queryWhereField:@"foo" arrayContains:@1] queryWhereField:@"foo" arrayContains:@2],
+      @"Invalid Query. Queries only support a single arrayContains filter.");
 }
 
 #pragma mark - GeoPoint Validation
@@ -611,15 +619,16 @@
   }
 
   XCTestExpectation *transactionDone = [self expectationWithDescription:@"transaction done"];
-  [ref.firestore runTransactionWithBlock:^id(FIRTransaction *transaction, NSError **pError) {
-    if (includeSets) {
-      FSTAssertThrows([transaction setData:data forDocument:ref], reason, @"for %@", data);
-    }
-    if (includeUpdates) {
-      FSTAssertThrows([transaction updateData:data forDocument:ref], reason, @"for %@", data);
-    }
-    return nil;
-  }
+  [ref.firestore
+      runTransactionWithBlock:^id(FIRTransaction *transaction, NSError **pError) {
+        if (includeSets) {
+          FSTAssertThrows([transaction setData:data forDocument:ref], reason, @"for %@", data);
+        }
+        if (includeUpdates) {
+          FSTAssertThrows([transaction updateData:data forDocument:ref], reason, @"for %@", data);
+        }
+        return nil;
+      }
       completion:^(id result, NSError *error) {
         // ends up being a no-op transaction.
         XCTAssertNil(error);
@@ -646,7 +655,7 @@
 - (void)expectFieldPath:(NSString *)fieldPath toFailWithReason:(NSString *)reason {
   // Get an arbitrary snapshot we can use for testing.
   FIRDocumentReference *docRef = [self documentRef];
-  [self writeDocumentRef:docRef data:@{ @"test" : @1 }];
+  [self writeDocumentRef:docRef data:@{@"test" : @1}];
   FIRDocumentSnapshot *snapshot = [self readDocumentForRef:docRef];
 
   // Update paths.

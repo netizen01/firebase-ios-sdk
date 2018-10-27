@@ -17,8 +17,16 @@ cc_library(
   SOURCES
     database_info.cc
     database_info.h
+    filter.cc
+    filter.h
     target_id_generator.cc
     target_id_generator.h
+    query.cc
+    query.h
+    relation_filter.cc
+    relation_filter.h
+    user_data.h
+    user_data.mm
   DEPENDS
     absl_strings
     firebase_firestore_model

@@ -415,7 +415,11 @@ _CPP_HEADERS = frozenset([
     ])
 
 _C_SYSTEM_DIRECTORIES = frozenset([
+    'SystemConfiguration',
+    'dispatch',
     'libkern',
+    'netinet',
+    'mach',
     'sys',
 ])
 
@@ -560,7 +564,7 @@ def ProcessHppHeadersOption(val):
     # Automatically append to extensions list so it does not have to be set 2 times
     _valid_extensions.update(_hpp_headers)
   except ValueError:
-    PrintUsage('Header extensions must be comma seperated list.')
+    PrintUsage('Header extensions must be comma separated list.')
 
 def IsHeaderExtension(file_extension):
   return file_extension in _hpp_headers
@@ -4528,6 +4532,13 @@ def CheckIncludeLine(filename, clean_lines, linenum, include_state, error):
             '<%s> should be #include "%s" or #import <%s>' %
             (match.group(1), match.group(1), match.group(1)))
 
+  # framework-style imports should not be used for project imports
+  match = Match(r'#import\s*<(Firestore/Source/[^>]+)', line)
+  if match:
+    error(filenamne, linenum, 'build/include', 4,
+          'Prefer #import "%s" for project import rather than #import <>' %
+          match.group(1))
+
   # C++ system files should not be #imported
   match = Match(r'#import\s*<([^/>.]+)>', line)
   if match:
@@ -5012,6 +5023,14 @@ def IsInitializerList(clean_lines, linenum):
   # Got to the beginning of the file without seeing the start of
   # constructor initializer list.
   return False
+
+
+def CheckForStringViewReferences(filename, clean_lines, linenum, error):
+  line = clean_lines.elided[linenum]
+  match = Search(r'const absl::string_view(?:\s*&)', line)
+  if match:
+    error(filename, linenum, 'runtime/references', 5,
+          'Avoid const references to absl::string_view; just pass by value.')
 
 
 def CheckForNonConstReference(filename, clean_lines, linenum,
@@ -5813,6 +5832,7 @@ def ProcessLine(filename, file_extension, clean_lines, line,
   CheckStyle(filename, clean_lines, line, file_extension, nesting_state, error)
   CheckLanguage(filename, clean_lines, line, file_extension, include_state,
                 nesting_state, error)
+  CheckForStringViewReferences(filename, clean_lines, line, error)
   CheckForNonConstReference(filename, clean_lines, line, nesting_state, error)
   CheckForNonStandardConstructs(filename, clean_lines, line,
                                 nesting_state, error)
@@ -6219,7 +6239,7 @@ def ParseArguments(args):
       try:
           _valid_extensions = set(val.split(','))
       except ValueError:
-          PrintUsage('Extensions must be comma seperated list.')
+          PrintUsage('Extensions must be comma separated list.')
     elif opt == '--headers':
       ProcessHppHeadersOption(val)
 

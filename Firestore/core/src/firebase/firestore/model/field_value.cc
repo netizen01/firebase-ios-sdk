@@ -23,7 +23,7 @@
 #include <vector>
 
 #include "Firestore/core/src/firebase/firestore/util/comparison.h"
-#include "Firestore/core/src/firebase/firestore/util/firebase_assert.h"
+#include "Firestore/core/src/firebase/firestore/util/hard_assert.h"
 
 using firebase::firestore::util::Comparator;
 
@@ -35,25 +35,6 @@ using Type = FieldValue::Type;
 using firebase::firestore::util::ComparisonResult;
 
 namespace {
-/**
- * This deviates from the other platforms that define TypeOrder. Since
- * we already define Type for union types, we use it together with this
- * function to achieve the equivalent order of types i.e.
- *     i) if two types are comparable, then they are of equal order;
- *    ii) otherwise, their order is the same as the order of their Type.
- */
-bool Comparable(Type lhs, Type rhs) {
-  switch (lhs) {
-    case Type::Integer:
-    case Type::Double:
-      return rhs == Type::Integer || rhs == Type::Double;
-    case Type::Timestamp:
-    case Type::ServerTimestamp:
-      return rhs == Type::Timestamp || rhs == Type::ServerTimestamp;
-    default:
-      return lhs == rhs;
-  }
-}
 
 // Makes a copy excluding the specified child, which is expected to be assigned
 // different value afterwards.
@@ -130,8 +111,7 @@ FieldValue& FieldValue::operator=(const FieldValue& value) {
       break;
     }
     default:
-      FIREBASE_ASSERT_MESSAGE_WITH_EXPRESSION(
-          false, lhs.type(), "Unsupported type %d", value.type());
+      HARD_FAIL("Unsupported type %s", value.type());
   }
   return *this;
 }
@@ -166,12 +146,25 @@ FieldValue& FieldValue::operator=(FieldValue&& value) {
   }
 }
 
+bool FieldValue::Comparable(Type lhs, Type rhs) {
+  switch (lhs) {
+    case Type::Integer:
+    case Type::Double:
+      return rhs == Type::Integer || rhs == Type::Double;
+    case Type::Timestamp:
+    case Type::ServerTimestamp:
+      return rhs == Type::Timestamp || rhs == Type::ServerTimestamp;
+    default:
+      return lhs == rhs;
+  }
+}
+
 FieldValue FieldValue::Set(const FieldPath& field_path,
                            FieldValue value) const {
-  FIREBASE_ASSERT_MESSAGE(type() == Type::Object,
-                          "Cannot set field for non-object FieldValue");
-  FIREBASE_ASSERT_MESSAGE(!field_path.empty(),
-                          "Cannot set field for empty path on FieldValue");
+  HARD_ASSERT(type() == Type::Object,
+              "Cannot set field for non-object FieldValue");
+  HARD_ASSERT(!field_path.empty(),
+              "Cannot set field for empty path on FieldValue");
   // Set the value by recursively calling on child object.
   const std::string& child_name = field_path.first_segment();
   const ObjectValue::Map& object_map = object_value_.internal_value;
@@ -179,33 +172,33 @@ FieldValue FieldValue::Set(const FieldPath& field_path,
     // TODO(zxu): Once immutable type is available, rewrite these.
     ObjectValue::Map copy = CopyExcept(object_map, child_name);
     copy[child_name] = std::move(value);
-    return FieldValue::ObjectValueFromMap(std::move(copy));
+    return FieldValue::FromMap(std::move(copy));
   } else {
     ObjectValue::Map copy = CopyExcept(object_map, child_name);
     const auto iter = object_map.find(child_name);
     if (iter == object_map.end() || iter->second.type() != Type::Object) {
-      copy[child_name] = FieldValue::ObjectValueFromMap({}).Set(
-          field_path.PopFirst(), std::move(value));
+      copy[child_name] =
+          FieldValue::FromMap({}).Set(field_path.PopFirst(), std::move(value));
     } else {
       copy[child_name] =
           iter->second.Set(field_path.PopFirst(), std::move(value));
     }
-    return FieldValue::ObjectValueFromMap(std::move(copy));
+    return FieldValue::FromMap(std::move(copy));
   }
 }
 
 FieldValue FieldValue::Delete(const FieldPath& field_path) const {
-  FIREBASE_ASSERT_MESSAGE(type() == Type::Object,
-                          "Cannot delete field for non-object FieldValue");
-  FIREBASE_ASSERT_MESSAGE(!field_path.empty(),
-                          "Cannot delete field for empty path on FieldValue");
+  HARD_ASSERT(type() == Type::Object,
+              "Cannot delete field for non-object FieldValue");
+  HARD_ASSERT(!field_path.empty(),
+              "Cannot delete field for empty path on FieldValue");
   // Delete the value by recursively calling on child object.
   const std::string& child_name = field_path.first_segment();
   const ObjectValue::Map& object_map = object_value_.internal_value;
   if (field_path.size() == 1) {
     // TODO(zxu): Once immutable type is available, rewrite these.
     ObjectValue::Map copy = CopyExcept(object_map, child_name);
-    return FieldValue::ObjectValueFromMap(std::move(copy));
+    return FieldValue::FromMap(std::move(copy));
   } else {
     const auto iter = object_map.find(child_name);
     if (iter == object_map.end() || iter->second.type() != Type::Object) {
@@ -217,14 +210,14 @@ FieldValue FieldValue::Delete(const FieldPath& field_path) const {
       ObjectValue::Map copy = CopyExcept(object_map, child_name);
       copy[child_name] =
           object_map.at(child_name).Delete(field_path.PopFirst());
-      return FieldValue::ObjectValueFromMap(std::move(copy));
+      return FieldValue::FromMap(std::move(copy));
     }
   }
 }
 
 absl::optional<FieldValue> FieldValue::Get(const FieldPath& field_path) const {
-  FIREBASE_ASSERT_MESSAGE(type() == Type::Object,
-                          "Cannot get field for non-object FieldValue");
+  HARD_ASSERT(type() == Type::Object,
+              "Cannot get field for non-object FieldValue");
   const FieldValue* current = this;
   for (const auto& path : field_path) {
     if (current->type() != Type::Object) {
@@ -241,53 +234,53 @@ absl::optional<FieldValue> FieldValue::Get(const FieldPath& field_path) const {
   return *current;
 }
 
-const FieldValue& FieldValue::NullValue() {
+const FieldValue& FieldValue::Null() {
   static const FieldValue kNullInstance;
   return kNullInstance;
 }
 
-const FieldValue& FieldValue::TrueValue() {
+const FieldValue& FieldValue::True() {
   static const FieldValue kTrueInstance(true);
   return kTrueInstance;
 }
 
-const FieldValue& FieldValue::FalseValue() {
+const FieldValue& FieldValue::False() {
   static const FieldValue kFalseInstance(false);
   return kFalseInstance;
 }
 
-const FieldValue& FieldValue::BooleanValue(bool value) {
-  return value ? TrueValue() : FalseValue();
+const FieldValue& FieldValue::FromBoolean(bool value) {
+  return value ? True() : False();
 }
 
-const FieldValue& FieldValue::NanValue() {
-  static const FieldValue kNanInstance = FieldValue::DoubleValue(NAN);
+const FieldValue& FieldValue::Nan() {
+  static const FieldValue kNanInstance = FieldValue::FromDouble(NAN);
   return kNanInstance;
 }
 
-FieldValue FieldValue::IntegerValue(int64_t value) {
+FieldValue FieldValue::FromInteger(int64_t value) {
   FieldValue result;
   result.SwitchTo(Type::Integer);
   result.integer_value_ = value;
   return result;
 }
 
-FieldValue FieldValue::DoubleValue(double value) {
+FieldValue FieldValue::FromDouble(double value) {
   FieldValue result;
   result.SwitchTo(Type::Double);
   result.double_value_ = value;
   return result;
 }
 
-FieldValue FieldValue::TimestampValue(const Timestamp& value) {
+FieldValue FieldValue::FromTimestamp(const Timestamp& value) {
   FieldValue result;
   result.SwitchTo(Type::Timestamp);
   result.timestamp_value_ = value;
   return result;
 }
 
-FieldValue FieldValue::ServerTimestampValue(const Timestamp& local_write_time,
-                                            const Timestamp& previous_value) {
+FieldValue FieldValue::FromServerTimestamp(const Timestamp& local_write_time,
+                                           const Timestamp& previous_value) {
   FieldValue result;
   result.SwitchTo(Type::ServerTimestamp);
   result.server_timestamp_value_.local_write_time = local_write_time;
@@ -295,7 +288,7 @@ FieldValue FieldValue::ServerTimestampValue(const Timestamp& local_write_time,
   return result;
 }
 
-FieldValue FieldValue::ServerTimestampValue(const Timestamp& local_write_time) {
+FieldValue FieldValue::FromServerTimestamp(const Timestamp& local_write_time) {
   FieldValue result;
   result.SwitchTo(Type::ServerTimestamp);
   result.server_timestamp_value_.local_write_time = local_write_time;
@@ -303,24 +296,24 @@ FieldValue FieldValue::ServerTimestampValue(const Timestamp& local_write_time) {
   return result;
 }
 
-FieldValue FieldValue::StringValue(const char* value) {
+FieldValue FieldValue::FromString(const char* value) {
   std::string copy(value);
-  return StringValue(std::move(copy));
+  return FromString(std::move(copy));
 }
 
-FieldValue FieldValue::StringValue(const std::string& value) {
+FieldValue FieldValue::FromString(const std::string& value) {
   std::string copy(value);
-  return StringValue(std::move(copy));
+  return FromString(std::move(copy));
 }
 
-FieldValue FieldValue::StringValue(std::string&& value) {
+FieldValue FieldValue::FromString(std::string&& value) {
   FieldValue result;
   result.SwitchTo(Type::String);
   result.string_value_.swap(value);
   return result;
 }
 
-FieldValue FieldValue::BlobValue(const uint8_t* source, size_t size) {
+FieldValue FieldValue::FromBlob(const uint8_t* source, size_t size) {
   FieldValue result;
   result.SwitchTo(Type::Blob);
   std::vector<uint8_t> copy(source, source + size);
@@ -329,8 +322,8 @@ FieldValue FieldValue::BlobValue(const uint8_t* source, size_t size) {
 }
 
 // Does NOT pass ownership of database_id.
-FieldValue FieldValue::ReferenceValue(const DocumentKey& value,
-                                      const DatabaseId* database_id) {
+FieldValue FieldValue::FromReference(const DocumentKey& value,
+                                     const DatabaseId* database_id) {
   FieldValue result;
   result.SwitchTo(Type::Reference);
   result.reference_value_.reference = value;
@@ -339,8 +332,8 @@ FieldValue FieldValue::ReferenceValue(const DocumentKey& value,
 }
 
 // Does NOT pass ownership of database_id.
-FieldValue FieldValue::ReferenceValue(DocumentKey&& value,
-                                      const DatabaseId* database_id) {
+FieldValue FieldValue::FromReference(DocumentKey&& value,
+                                     const DatabaseId* database_id) {
   FieldValue result;
   result.SwitchTo(Type::Reference);
   std::swap(result.reference_value_.reference, value);
@@ -348,31 +341,31 @@ FieldValue FieldValue::ReferenceValue(DocumentKey&& value,
   return result;
 }
 
-FieldValue FieldValue::GeoPointValue(const GeoPoint& value) {
+FieldValue FieldValue::FromGeoPoint(const GeoPoint& value) {
   FieldValue result;
   result.SwitchTo(Type::GeoPoint);
   result.geo_point_value_ = value;
   return result;
 }
 
-FieldValue FieldValue::ArrayValue(const std::vector<FieldValue>& value) {
+FieldValue FieldValue::FromArray(const std::vector<FieldValue>& value) {
   std::vector<FieldValue> copy(value);
-  return ArrayValue(std::move(copy));
+  return FromArray(std::move(copy));
 }
 
-FieldValue FieldValue::ArrayValue(std::vector<FieldValue>&& value) {
+FieldValue FieldValue::FromArray(std::vector<FieldValue>&& value) {
   FieldValue result;
   result.SwitchTo(Type::Array);
   std::swap(result.array_value_, value);
   return result;
 }
 
-FieldValue FieldValue::ObjectValueFromMap(const ObjectValue::Map& value) {
+FieldValue FieldValue::FromMap(const ObjectValue::Map& value) {
   ObjectValue::Map copy(value);
-  return ObjectValueFromMap(std::move(copy));
+  return FromMap(std::move(copy));
 }
 
-FieldValue FieldValue::ObjectValueFromMap(ObjectValue::Map&& value) {
+FieldValue FieldValue::FromMap(ObjectValue::Map&& value) {
   FieldValue result;
   result.SwitchTo(Type::Object);
   std::swap(result.object_value_.internal_value, value);
@@ -380,7 +373,7 @@ FieldValue FieldValue::ObjectValueFromMap(ObjectValue::Map&& value) {
 }
 
 bool operator<(const FieldValue& lhs, const FieldValue& rhs) {
-  if (!Comparable(lhs.type(), rhs.type())) {
+  if (!FieldValue::Comparable(lhs.type(), rhs.type())) {
     return lhs.type() < rhs.type();
   }
 
@@ -435,8 +428,7 @@ bool operator<(const FieldValue& lhs, const FieldValue& rhs) {
     case Type::Object:
       return lhs.object_value_ < rhs.object_value_;
     default:
-      FIREBASE_ASSERT_MESSAGE_WITH_EXPRESSION(
-          false, lhs.type(), "Unsupported type %d", lhs.type());
+      HARD_FAIL("Unsupported type %s", lhs.type());
       // return false if assertion does not abort the program. We will say
       // each unsupported type takes only one value thus everything is equal.
       return false;

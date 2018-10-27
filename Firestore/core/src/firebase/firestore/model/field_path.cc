@@ -19,7 +19,7 @@
 #include <algorithm>
 #include <utility>
 
-#include "Firestore/core/src/firebase/firestore/util/firebase_assert.h"
+#include "Firestore/core/src/firebase/firestore/util/hard_assert.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/str_replace.h"
 #include "absl/strings/str_split.h"
@@ -59,6 +59,23 @@ bool IsValidIdentifier(const std::string& segment) {
   return true;
 }
 
+/** A custom formatter to be used with absl::StrJoin(). */
+struct JoinEscaped {
+  static std::string escaped_segment(const std::string& segment) {
+    auto escaped = absl::StrReplaceAll(segment, {{"\\", "\\\\"}, {"`", "\\`"}});
+    const bool needs_escaping = !IsValidIdentifier(escaped);
+    if (needs_escaping) {
+      escaped.insert(escaped.begin(), '`');
+      escaped.push_back('`');
+    }
+    return escaped;
+  }
+
+  template <typename T>
+  void operator()(T* out, const std::string& segment) {
+    out->append(escaped_segment(segment));
+  }
+};
 }  // namespace
 
 FieldPath FieldPath::FromServerFormat(const absl::string_view path) {
@@ -71,18 +88,11 @@ FieldPath FieldPath::FromServerFormat(const absl::string_view path) {
   std::string segment;
   segment.reserve(path.size());
 
-  // string_view doesn't have a c_str() method, because it might not be
-  // null-terminated. Assertions expect C strings, so construct std::string on
-  // the fly, so that c_str() might be called on it.
-  const auto to_string = [](const absl::string_view view) {
-    return std::string{view.data(), view.data() + view.size()};
-  };
-  const auto finish_segment = [&segments, &segment, &path, &to_string] {
-    FIREBASE_ASSERT_MESSAGE(
-        !segment.empty(),
-        "Invalid field path (%s). Paths must not be empty, begin with "
-        "'.', end with '.', or contain '..'",
-        to_string(path).c_str());
+  const auto finish_segment = [&segments, &segment, &path] {
+    HARD_ASSERT(!segment.empty(),
+                "Invalid field path (%s). Paths must not be empty, begin with "
+                "'.', end with '.', or contain '..'",
+                path);
     // Move operation will clear segment, but capacity will remain the same
     // (not, strictly speaking, required by the standard, but true in practice).
     segments.push_back(std::move(segment));
@@ -116,9 +126,8 @@ FieldPath FieldPath::FromServerFormat(const absl::string_view path) {
       case '\\':
         // TODO(b/37244157): Make this a user-facing exception once we
         // finalize field escaping.
-        FIREBASE_ASSERT_MESSAGE(i + 1 != path.size(),
-                                "Trailing escape characters not allowed in %s",
-                                to_string(path).c_str());
+        HARD_ASSERT(i + 1 != path.size(),
+                    "Trailing escape characters not allowed in %s", path);
         ++i;
         segment += path[i];
         break;
@@ -131,8 +140,7 @@ FieldPath FieldPath::FromServerFormat(const absl::string_view path) {
   }
   finish_segment();
 
-  FIREBASE_ASSERT_MESSAGE(!inside_backticks, "Unterminated ` in path %s",
-                          to_string(path).c_str());
+  HARD_ASSERT(!inside_backticks, "Unterminated ` in path %s", path);
 
   return FieldPath{std::move(segments)};
 }
@@ -152,20 +160,7 @@ bool FieldPath::IsKeyFieldPath() const {
 }
 
 std::string FieldPath::CanonicalString() const {
-  const auto escaped_segment = [](const std::string& segment) {
-    auto escaped = absl::StrReplaceAll(segment, {{"\\", "\\\\"}, {"`", "\\`"}});
-    const bool needs_escaping = !IsValidIdentifier(escaped);
-    if (needs_escaping) {
-      escaped.insert(escaped.begin(), '`');
-      escaped.push_back('`');
-    }
-    return escaped;
-  };
-  return absl::StrJoin(
-      begin(), end(), ".",
-      [escaped_segment](std::string* out, const std::string& segment) {
-        out->append(escaped_segment(segment));
-      });
+  return absl::StrJoin(begin(), end(), ".", JoinEscaped());
 }
 
 }  // namespace model

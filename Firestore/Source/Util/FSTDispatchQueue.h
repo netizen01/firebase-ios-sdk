@@ -16,6 +16,8 @@
 
 #import <Foundation/Foundation.h>
 
+#include "Firestore/core/src/firebase/firestore/util/async_queue.h"
+
 NS_ASSUME_NONNULL_BEGIN
 
 /**
@@ -37,7 +39,7 @@ typedef NS_ENUM(NSInteger, FSTTimerID) {
   FSTTimerIDWriteStreamConnectionBackoff,
 
   /**
-   * A timer used in FSTOnlineStateTracker to transition from FSTOnlineState Unknown to Offline
+   * A timer used in FSTOnlineStateTracker to transition from OnlineState Unknown to Offline
    * after a set timeout, rather than waiting indefinitely for success or failure.
    */
   FSTTimerIDOnlineStateTimeout
@@ -141,6 +143,8 @@ typedef NS_ENUM(NSInteger, FSTTimerID) {
 
 /** The underlying wrapped dispatch_queue_t */
 @property(nonatomic, strong, readonly) dispatch_queue_t queue;
+
+- (firebase::firestore::util::AsyncQueue *)implementation;
 
 @end
 

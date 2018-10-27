@@ -4,7 +4,8 @@
     "itName": "Events are raised after watch ack",
     "tags": [],
     "config": {
-      "useGarbageCollection": true
+      "useGarbageCollection": true,
+      "numClients": 1
     },
     "steps": [
       {
@@ -56,8 +57,12 @@
             2
           ],
           "resume-token-1001"
-        ],
-        "watchSnapshot": 1001,
+        ]
+      },
+      {
+        "watchSnapshot": {
+          "version": 1001
+        },
         "expect": [
           {
             "query": {
@@ -87,7 +92,8 @@
     "itName": "Events are raised for local sets before watch ack",
     "tags": [],
     "config": {
-      "useGarbageCollection": true
+      "useGarbageCollection": true,
+      "numClients": 1
     },
     "steps": [
       {

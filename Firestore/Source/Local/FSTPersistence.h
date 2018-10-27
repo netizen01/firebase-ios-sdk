@@ -16,12 +16,21 @@
 
 #import <Foundation/Foundation.h>
 
-#import "Firestore/Source/Util/FSTAssert.h"
 #include "Firestore/core/src/firebase/firestore/auth/user.h"
+#include "Firestore/core/src/firebase/firestore/model/document_key.h"
+#include "Firestore/core/src/firebase/firestore/model/types.h"
+#include "Firestore/core/src/firebase/firestore/util/hard_assert.h"
+#include "Firestore/core/src/firebase/firestore/util/status.h"
 
+@class FSTDocumentKey;
+@class FSTQueryData;
+@class FSTReferenceSet;
 @protocol FSTMutationQueue;
 @protocol FSTQueryCache;
+@protocol FSTReferenceDelegate;
 @protocol FSTRemoteDocumentCache;
+
+struct FSTTransactionRunner;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -55,16 +64,14 @@ NS_ASSUME_NONNULL_BEGIN
  * FSTPersistence. The cost is that the FSTLocalStore needs to be slightly careful about the order
  * of its reads and writes in order to avoid relying on being able to read back uncommitted writes.
  */
-struct FSTTransactionRunner;
 @protocol FSTPersistence <NSObject>
 
 /**
  * Starts persistent storage, opening the database or similar.
  *
- * @param error An error object that will be populated if startup fails.
- * @return YES if persistent storage started successfully, NO otherwise.
+ * @return A Status object that will be populated with an error message if startup fails.
  */
-- (BOOL)start:(NSError **)error;
+- (firebase::firestore::util::Status)start;
 
 /** Releases any resources held during eager shutdown. */
 - (void)shutdown;
@@ -87,6 +94,15 @@ struct FSTTransactionRunner;
 
 @property(nonatomic, readonly, assign) const FSTTransactionRunner &run;
 
+/**
+ * This property provides access to hooks around the document reference lifecycle. It is initially
+ * nullable while being implemented, but the goal is to eventually have it be non-nil.
+ */
+@property(nonatomic, readonly, strong) id<FSTReferenceDelegate> referenceDelegate;
+
+@property(nonatomic, readonly)
+    firebase::firestore::model::ListenSequenceNumber currentSequenceNumber;
+
 @end
 
 @protocol FSTTransactional
@@ -94,6 +110,55 @@ struct FSTTransactionRunner;
 - (void)startTransaction:(absl::string_view)label;
 
 - (void)commitTransaction;
+
+@end
+
+/**
+ * An FSTReferenceDelegate instance handles all of the hooks into the document-reference lifecycle.
+ * This includes being added to a target, being removed from a target, being subject to mutation,
+ * and being mutated by the user.
+ *
+ * Different implementations may do different things with each of these events. Not every
+ * implementation needs to do something with every lifecycle hook.
+ *
+ * Implementations that care about sequence numbers are responsible for generating them and making
+ * them available.
+ */
+@protocol FSTReferenceDelegate
+
+/**
+ * Registers an FSTReferenceSet of documents that should be considered 'referenced' and not eligible
+ * for removal during garbage collection.
+ */
+- (void)addInMemoryPins:(FSTReferenceSet *)set;
+
+/**
+ * Notify the delegate that a target was removed.
+ */
+- (void)removeTarget:(FSTQueryData *)queryData;
+
+/**
+ * Notify the delegate that the given document was added to a target.
+ */
+- (void)addReference:(const firebase::firestore::model::DocumentKey &)key;
+
+/**
+ * Notify the delegate that the given document was removed from a target.
+ */
+- (void)removeReference:(const firebase::firestore::model::DocumentKey &)key;
+
+/**
+ * Notify the delegate that a document is no longer being mutated by the user.
+ */
+- (void)removeMutationReference:(const firebase::firestore::model::DocumentKey &)key;
+
+/**
+ * Notify the delegate that a limbo document was updated.
+ */
+- (void)limboDocumentUpdated:(const firebase::firestore::model::DocumentKey &)key;
+
+@property(nonatomic, readonly)
+    firebase::firestore::model::ListenSequenceNumber currentSequenceNumber;
 
 @end
 
@@ -124,7 +189,7 @@ struct FSTTransactionRunner {
       typename std::enable_if<std::is_void<decltype(block())>::value, void>::type {
     __strong id<FSTTransactional> strongDb = _db;
     if (!strongDb && _expect_db) {
-      FSTCFail(@"Transaction runner accessed without underlying db when it expected one");
+      HARD_FAIL("Transaction runner accessed without underlying db when it expected one");
     }
     if (strongDb) {
       [strongDb startTransaction:label];
@@ -141,7 +206,7 @@ struct FSTTransactionRunner {
     using ReturnT = decltype(block());
     __strong id<FSTTransactional> strongDb = _db;
     if (!strongDb && _expect_db) {
-      FSTCFail(@"Transaction runner accessed without underlying db when it expected one");
+      HARD_FAIL("Transaction runner accessed without underlying db when it expected one");
     }
     if (strongDb) {
       [strongDb startTransaction:label];

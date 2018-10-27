@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name             = 'FirebaseFunctions'
-  s.version          = '2.0.0'
+  s.version          = '2.1.1'
   s.summary          = 'Cloud Functions for Firebase iOS SDK.'
 
   s.description      = <<-DESC
@@ -16,6 +16,7 @@ iOS SDK for Cloud Functions for Firebase.
   }
 
   s.ios.deployment_target = '8.0'
+  s.osx.deployment_target = '10.10'
 
   s.cocoapods_version = '>= 1.4.0'
   s.static_framework = true
@@ -26,4 +27,8 @@ iOS SDK for Cloud Functions for Firebase.
 
   s.dependency 'FirebaseCore', '~> 5.0'
   s.dependency 'GTMSessionFetcher/Core', '~> 1.1'
+
+  s.pod_target_xcconfig = {
+    'GCC_C_LANGUAGE_STANDARD' => 'c99'
+  }
 end

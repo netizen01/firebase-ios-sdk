@@ -72,20 +72,20 @@
   FIRQuerySnapshot *querySnapshot =
       [self readDocumentSetForRef:[query queryStartingAtDocument:snapshot]];
   XCTAssertEqualObjects(FIRQuerySnapshotGetData(querySnapshot), (@[
-                          @{ @"v" : @"c",
-                             @"sort" : @2.0 },
-                          @{ @"v" : @"d",
-                             @"sort" : @2.0 }
+                          @{@"v" : @"c",
+                            @"sort" : @2.0},
+                          @{@"v" : @"d",
+                            @"sort" : @2.0}
                         ]));
 
   querySnapshot = [self readDocumentSetForRef:[query queryEndingBeforeDocument:snapshot]];
   XCTAssertEqualObjects(FIRQuerySnapshotGetData(querySnapshot), (@[
-                          @{ @"v" : @"e",
-                             @"sort" : @0.0 },
-                          @{ @"v" : @"a",
-                             @"sort" : @1.0 },
-                          @{ @"v" : @"b",
-                             @"sort" : @2.0 }
+                          @{@"v" : @"e",
+                            @"sort" : @0.0},
+                          @{@"v" : @"a",
+                            @"sort" : @1.0},
+                          @{@"v" : @"b",
+                            @"sort" : @2.0}
                         ]));
 }
 
@@ -103,20 +103,20 @@
   FIRQuerySnapshot *querySnapshot =
       [self readDocumentSetForRef:[query queryStartingAtValues:@[ @2.0 ]]];
   XCTAssertEqualObjects(FIRQuerySnapshotGetData(querySnapshot), (@[
-                          @{ @"v" : @"b",
-                             @"sort" : @2.0 },
-                          @{ @"v" : @"c",
-                             @"sort" : @2.0 },
-                          @{ @"v" : @"d",
-                             @"sort" : @2.0 }
+                          @{@"v" : @"b",
+                            @"sort" : @2.0},
+                          @{@"v" : @"c",
+                            @"sort" : @2.0},
+                          @{@"v" : @"d",
+                            @"sort" : @2.0}
                         ]));
 
   querySnapshot = [self readDocumentSetForRef:[query queryEndingBeforeValues:@[ @2.0 ]]];
   XCTAssertEqualObjects(FIRQuerySnapshotGetData(querySnapshot), (@[
-                          @{ @"v" : @"e",
-                             @"sort" : @0.0 },
-                          @{ @"v" : @"a",
-                             @"sort" : @1.0 }
+                          @{@"v" : @"e",
+                            @"sort" : @0.0},
+                          @{@"v" : @"a",
+                            @"sort" : @1.0}
                         ]));
 }
 
@@ -178,18 +178,18 @@
 
   FIRQuerySnapshot *snapshot = [self readDocumentSetForRef:[query queryStartingAtValues:@[ @2.0 ]]];
   XCTAssertEqualObjects(FIRQuerySnapshotGetData(snapshot), (@[
-                          @{ @"v" : @"c",
-                             @"sort" : @2.0 },
-                          @{ @"v" : @"b",
-                             @"sort" : @2.0 },
-                          @{ @"v" : @"a",
-                             @"sort" : @1.0 },
-                          @{ @"v" : @"e",
-                             @"sort" : @0.0 }
+                          @{@"v" : @"c",
+                            @"sort" : @2.0},
+                          @{@"v" : @"b",
+                            @"sort" : @2.0},
+                          @{@"v" : @"a",
+                            @"sort" : @1.0},
+                          @{@"v" : @"e",
+                            @"sort" : @0.0}
                         ]));
 
   snapshot = [self readDocumentSetForRef:[query queryEndingBeforeValues:@[ @2.0 ]]];
-  XCTAssertEqualObjects(FIRQuerySnapshotGetData(snapshot), (@[ @{ @"v" : @"d", @"sort" : @3.0 } ]));
+  XCTAssertEqualObjects(FIRQuerySnapshotGetData(snapshot), (@[ @{@"v" : @"d", @"sort" : @3.0} ]));
 }
 
 FIRTimestamp *TimestampWithMicros(int64_t seconds, int32_t micros) {
@@ -216,32 +216,29 @@ FIRTimestamp *TimestampWithMicros(int64_t seconds, int32_t micros) {
 }
 
 - (void)testTimestampsCanBePassedToQueriesInWhereClause {
-  FIRTimestamp *currentTimestamp = [FIRTimestamp timestamp];
-  int64_t seconds = currentTimestamp.seconds;
-  int32_t micros = currentTimestamp.nanoseconds / 1000;
   FIRCollectionReference *testCollection = [self collectionRefWithDocuments:@{
     @"a" : @{
-      @"timestamp" : TimestampWithMicros(seconds, micros + 2),
+      @"timestamp" : TimestampWithMicros(100, 7),
     },
     @"b" : @{
-      @"timestamp" : TimestampWithMicros(seconds, micros - 1),
+      @"timestamp" : TimestampWithMicros(100, 4),
     },
     @"c" : @{
-      @"timestamp" : TimestampWithMicros(seconds, micros + 3),
+      @"timestamp" : TimestampWithMicros(100, 8),
     },
     @"d" : @{
-      @"timestamp" : TimestampWithMicros(seconds, micros),
+      @"timestamp" : TimestampWithMicros(100, 5),
     },
     @"e" : @{
-      @"timestamp" : TimestampWithMicros(seconds, micros + 1),
+      @"timestamp" : TimestampWithMicros(100, 6),
     }
   }];
 
-  FIRQuerySnapshot *querySnapshot = [self
-      readDocumentSetForRef:[[testCollection queryWhereField:@"timestamp"
-                                      isGreaterThanOrEqualTo:TimestampWithMicros(seconds, micros)]
-                                queryWhereField:@"timestamp"
-                                     isLessThan:TimestampWithMicros(seconds, micros + 3)]];
+  FIRQuerySnapshot *querySnapshot =
+      [self readDocumentSetForRef:[[testCollection queryWhereField:@"timestamp"
+                                            isGreaterThanOrEqualTo:TimestampWithMicros(100, 5)]
+                                      queryWhereField:@"timestamp"
+                                           isLessThan:TimestampWithMicros(100, 8)]];
   XCTAssertEqualObjects(FIRQuerySnapshotGetIDs(querySnapshot), (@[ @"d", @"e", @"a" ]));
 }
 

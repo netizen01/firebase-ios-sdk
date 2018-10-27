@@ -17,6 +17,8 @@
 #import <XCTest/XCTest.h>
 
 #import <OCMock/OCMock.h>
+
+#import <FirebaseCore/FIRAppInternal.h>
 #import <FirebaseInstanceID/FirebaseInstanceID.h>
 
 #import "FIRMessaging.h"
@@ -25,14 +27,13 @@
 extern NSString *const kFIRMessagingFCMTokenFetchAPNSOption;
 
 @interface FIRMessaging ()
++ (FIRMessaging *)messagingForTests;
 
 @property(nonatomic, readwrite, strong) NSString *defaultFcmToken;
 @property(nonatomic, readwrite, strong) NSData *apnsTokenData;
 @property(nonatomic, readwrite, strong) FIRInstanceID *instanceID;
 @property(nonatomic, readwrite, strong) NSUserDefaults *messagingUserDefaults;
 
-- (instancetype)initWithInstanceID:(FIRInstanceID *)instanceID
-                      userDefaults:(NSUserDefaults *)defaults;
 // Direct Channel Methods
 - (void)updateAutomaticClientConnection;
 - (BOOL)shouldBeConnectedAutomatically;
@@ -44,6 +45,8 @@ extern NSString *const kFIRMessagingFCMTokenFetchAPNSOption;
 @property(nonatomic, readonly, strong) FIRMessaging *messaging;
 @property(nonatomic, readwrite, strong) id mockMessaging;
 @property(nonatomic, readwrite, strong) id mockInstanceID;
+@property(nonatomic, readwrite, strong) id realInstanceID;
+@property(nonatomic, readwrite, strong) id mockFirebaseApp;
 
 @end
 
@@ -51,18 +54,24 @@ extern NSString *const kFIRMessagingFCMTokenFetchAPNSOption;
 
 - (void)setUp {
   [super setUp];
-  _messaging = [[FIRMessaging alloc] initWithInstanceID:[FIRInstanceID instanceID]
-                                           userDefaults:[NSUserDefaults standardUserDefaults]];
-  _mockMessaging = OCMPartialMock(self.messaging);
+  _messaging = [FIRMessaging messagingForTests];
+  _mockFirebaseApp = OCMClassMock([FIRApp class]);
+   OCMStub([_mockFirebaseApp defaultApp]).andReturn(_mockFirebaseApp);
   _mockInstanceID = OCMPartialMock(self.messaging.instanceID);
-  self.messaging.instanceID = _mockInstanceID;
+  _realInstanceID = self.messaging.instanceID;
+  self.messaging.instanceID = self.mockInstanceID;
   [[NSUserDefaults standardUserDefaults]
       removePersistentDomainForName:[NSBundle mainBundle].bundleIdentifier];
 }
 
 - (void)tearDown {
+  self.messaging.shouldEstablishDirectChannel = NO;
+  self.messaging.defaultFcmToken = nil;
+  self.messaging.instanceID = self.realInstanceID;
+  self.messaging.apnsTokenData = nil;
   [_mockMessaging stopMocking];
   [_mockInstanceID stopMocking];
+  [_mockFirebaseApp stopMocking];
   [super tearDown];
 }
 
@@ -73,6 +82,46 @@ extern NSString *const kFIRMessagingFCMTokenFetchAPNSOption;
   // Now set the flag should overwrite Info.plist value.
   _messaging.autoInitEnabled = YES;
   XCTAssertTrue(_messaging.isAutoInitEnabled);
+}
+
+- (void)testAutoInitEnableFlagOverrideGlobalTrue {
+  OCMStub([_mockFirebaseApp isDataCollectionDefaultEnabled]).andReturn(YES);
+  id bundleMock = OCMPartialMock([NSBundle mainBundle]);
+  OCMStub([bundleMock objectForInfoDictionaryKey:kFIRMessagingPlistAutoInitEnabled]).andReturn(nil);
+  XCTAssertTrue(self.messaging.isAutoInitEnabled);
+
+  self.messaging.autoInitEnabled = NO;
+  XCTAssertFalse(self.messaging.isAutoInitEnabled);
+  [bundleMock stopMocking];
+}
+
+- (void)testAutoInitEnableFlagOverrideGlobalFalse {
+  OCMStub([_mockFirebaseApp isDataCollectionDefaultEnabled]).andReturn(YES);
+  id bundleMock = OCMPartialMock([NSBundle mainBundle]);
+  OCMStub([bundleMock objectForInfoDictionaryKey:kFIRMessagingPlistAutoInitEnabled]).andReturn(nil);
+  XCTAssertTrue(self.messaging.isAutoInitEnabled);
+
+  self.messaging.autoInitEnabled = NO;
+  XCTAssertFalse(self.messaging.isAutoInitEnabled);
+  [bundleMock stopMocking];
+}
+
+- (void)testAutoInitEnableGlobalDefaultTrue {
+  OCMStub([_mockFirebaseApp isDataCollectionDefaultEnabled]).andReturn(YES);
+  id bundleMock = OCMPartialMock([NSBundle mainBundle]);
+  OCMStub([bundleMock objectForInfoDictionaryKey:kFIRMessagingPlistAutoInitEnabled]).andReturn(nil);
+
+  XCTAssertTrue(self.messaging.isAutoInitEnabled);
+  [bundleMock stopMocking];
+}
+
+- (void)testAutoInitEnableGlobalDefaultFalse {
+  OCMStub([_mockFirebaseApp isDataCollectionDefaultEnabled]).andReturn(NO);
+  id bundleMock = OCMPartialMock([NSBundle mainBundle]);
+  OCMStub([bundleMock objectForInfoDictionaryKey:kFIRMessagingPlistAutoInitEnabled]).andReturn(nil);
+
+  XCTAssertFalse(self.messaging.isAutoInitEnabled);
+  [bundleMock stopMocking];
 }
 
 #pragma mark - Direct Channel Establishment Testing
@@ -91,7 +140,7 @@ extern NSString *const kFIRMessagingFCMTokenFetchAPNSOption;
   UIApplication *app = [UIApplication sharedApplication];
   id mockApp = OCMPartialMock(app);
   [[[mockApp stub] andReturnValue:@(UIApplicationStateActive)] applicationState];
-  BOOL shouldBeConnected = [_mockMessaging shouldBeConnectedAutomatically];
+  BOOL shouldBeConnected = [_messaging shouldBeConnectedAutomatically];
   XCTAssertTrue(shouldBeConnected);
 }
 
@@ -108,7 +157,7 @@ extern NSString *const kFIRMessagingFCMTokenFetchAPNSOption;
   UIApplication *app = [UIApplication sharedApplication];
   id mockApp = OCMPartialMock(app);
   [[[mockApp stub] andReturnValue:@(UIApplicationStateActive)] applicationState];
-  BOOL shouldBeConnected = [_mockMessaging shouldBeConnectedAutomatically];
+  BOOL shouldBeConnected = [_messaging shouldBeConnectedAutomatically];
   XCTAssertFalse(shouldBeConnected);
 }
 
@@ -139,12 +188,13 @@ extern NSString *const kFIRMessagingFCMTokenFetchAPNSOption;
       [self expectationWithDescription:@"Included APNS Token data in options dict."];
   // Inspect the 'options' dictionary to tell whether our expectation was fulfilled
   [[[self.mockInstanceID stub] andDo:^(NSInvocation *invocation) {
-  NSDictionary *options;
-  [invocation getArgument:&options atIndex:4];
+    NSDictionary *options;
+    [invocation getArgument:&options atIndex:4];
     if (options[@"apns_token"] != nil) {
       [expectation fulfill];
     }
   }] tokenWithAuthorizedEntity:OCMOCK_ANY scope:OCMOCK_ANY options:OCMOCK_ANY handler:OCMOCK_ANY];
+  self.messaging.instanceID = self.mockInstanceID;
   [self.messaging retrieveFCMTokenForSenderID:@"123456"
                                    completion:^(NSString * _Nullable FCMToken,
                                                 NSError * _Nullable error) {}];

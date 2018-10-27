@@ -24,7 +24,9 @@ cc_library(
     sorted_map_base.h
     sorted_map_base.cc
     sorted_map_iterator.h
+    sorted_set.h
     tree_sorted_map.h
   DEPENDS
+    absl_base
     firebase_firestore_util
 )

@@ -46,15 +46,24 @@ elif [[ -z "$TRAVIS_COMMIT_RANGE" ]]; then
 else
   case "$PROJECT-$METHOD" in
     Firebase-*)
-      check_changes '^(Firebase|Functions|Example)'
+      check_changes '^(Firebase/Auth|Firebase/Core|Firebase/Database|Firebase/DynamicLinks|'\
+'Firebase/Messaging|Firebase/Storage|Functions|GoogleUtilities|Interop|Example|'\
+'FirebaseAnalyticsIntop.podspec|FirebaseAuth.podspec|FirebaseAuthInterop.podspec|'\
+'FirebaseCore.podspec|FirebaseDatabase.podspec|FirebaseDynamicLinks.podspec|'\
+'FirebaseFunctions.podspec|FirebaseMessaging.podspec|FirebaseStorage.podspec|'\
+'FirebaseStorage.podspec)'
       ;;
 
-    Firestore-xcodebuild)
-      check_changes '^Firestore'
+    InAppMessagingDisplay-*)
+      check_changes '^(Firebase/InAppMessagingDisplay|InAppMessagingDisplay)'
+      ;;
+
+    Firestore-xcodebuild|Firestore-pod-lib-lint)
+      check_changes '^(Firestore|FirebaseFirestore.podspec|FirebaseFirestoreSwift.podspec)'
       ;;
 
     Firestore-cmake)
-      check_changes '^Firestore/(core|third_party)'
+      check_changes '^(Firestore/(core|third_party)|cmake)'
       ;;
 
     *)
@@ -68,6 +77,7 @@ fi
 
 # Always rebuild if Travis configuration and/or build scripts changed.
 check_changes '^.travis.yml'
+check_changes '^Gemfile.lock'
 check_changes '^scripts/(build|if_changed).sh'
 
 if [[ "$run" == true ]]; then

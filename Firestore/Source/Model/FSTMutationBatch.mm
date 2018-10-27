@@ -16,24 +16,29 @@
 
 #import "Firestore/Source/Model/FSTMutationBatch.h"
 
+#include <utility>
+
 #import "FIRTimestamp.h"
 
-#import "Firestore/Source/Core/FSTSnapshotVersion.h"
 #import "Firestore/Source/Model/FSTDocument.h"
 #import "Firestore/Source/Model/FSTMutation.h"
-#import "Firestore/Source/Util/FSTAssert.h"
 
-#include "Firestore/core/src/firebase/firestore/model/document_key.h"
+#include "Firestore/core/src/firebase/firestore/util/hard_assert.h"
 
+using firebase::firestore::model::BatchId;
 using firebase::firestore::model::DocumentKey;
+using firebase::firestore::model::DocumentKeyHash;
+using firebase::firestore::model::DocumentKeySet;
+using firebase::firestore::model::DocumentVersionMap;
+using firebase::firestore::model::SnapshotVersion;
 
 NS_ASSUME_NONNULL_BEGIN
 
-const FSTBatchID kFSTBatchIDUnknown = -1;
+const BatchId kFSTBatchIDUnknown = -1;
 
 @implementation FSTMutationBatch
 
-- (instancetype)initWithBatchID:(FSTBatchID)batchID
+- (instancetype)initWithBatchID:(BatchId)batchID
                  localWriteTime:(FIRTimestamp *)localWriteTime
                       mutations:(NSArray<FSTMutation *> *)mutations {
   self = [super init];
@@ -70,36 +75,44 @@ const FSTBatchID kFSTBatchIDUnknown = -1;
                                     self.batchID, self.localWriteTime, self.mutations];
 }
 
-- (FSTMaybeDocument *_Nullable)applyTo:(FSTMaybeDocument *_Nullable)maybeDoc
-                           documentKey:(const DocumentKey &)documentKey
-                   mutationBatchResult:(FSTMutationBatchResult *_Nullable)mutationBatchResult {
-  FSTAssert(!maybeDoc || [maybeDoc.key isEqualToKey:documentKey],
-            @"applyTo: key %s doesn't match maybeDoc key %s", documentKey.ToString().c_str(),
-            maybeDoc.key.ToString().c_str());
-  FSTMaybeDocument *baseDoc = maybeDoc;
-  if (mutationBatchResult) {
-    FSTAssert(mutationBatchResult.mutationResults.count == self.mutations.count,
-              @"Mismatch between mutations length (%lu) and results length (%lu)",
-              (unsigned long)self.mutations.count,
-              (unsigned long)mutationBatchResult.mutationResults.count);
-  }
+- (FSTMaybeDocument *_Nullable)applyToRemoteDocument:(FSTMaybeDocument *_Nullable)maybeDoc
+                                         documentKey:(const DocumentKey &)documentKey
+                                 mutationBatchResult:
+                                     (FSTMutationBatchResult *_Nullable)mutationBatchResult {
+  HARD_ASSERT(!maybeDoc || maybeDoc.key == documentKey,
+              "applyTo: key %s doesn't match maybeDoc key %s", documentKey.ToString(),
+              maybeDoc.key.ToString());
+
+  HARD_ASSERT(mutationBatchResult.mutationResults.count == self.mutations.count,
+              "Mismatch between mutations length (%s) and results length (%s)",
+              self.mutations.count, mutationBatchResult.mutationResults.count);
 
   for (NSUInteger i = 0; i < self.mutations.count; i++) {
     FSTMutation *mutation = self.mutations[i];
-    FSTMutationResult *_Nullable mutationResult = mutationBatchResult.mutationResults[i];
-    if ([mutation.key isEqualToKey:documentKey]) {
-      maybeDoc = [mutation applyTo:maybeDoc
-                      baseDocument:baseDoc
-                    localWriteTime:self.localWriteTime
-                    mutationResult:mutationResult];
+    FSTMutationResult *mutationResult = mutationBatchResult.mutationResults[i];
+    if (mutation.key == documentKey) {
+      maybeDoc = [mutation applyToRemoteDocument:maybeDoc mutationResult:mutationResult];
     }
   }
   return maybeDoc;
 }
 
-- (FSTMaybeDocument *_Nullable)applyTo:(FSTMaybeDocument *_Nullable)maybeDoc
-                           documentKey:(const DocumentKey &)documentKey {
-  return [self applyTo:maybeDoc documentKey:documentKey mutationBatchResult:nil];
+- (FSTMaybeDocument *_Nullable)applyToLocalDocument:(FSTMaybeDocument *_Nullable)maybeDoc
+                                        documentKey:(const DocumentKey &)documentKey {
+  HARD_ASSERT(!maybeDoc || maybeDoc.key == documentKey,
+              "applyTo: key %s doesn't match maybeDoc key %s", documentKey.ToString(),
+              maybeDoc.key.ToString());
+  FSTMaybeDocument *baseDoc = maybeDoc;
+
+  for (NSUInteger i = 0; i < self.mutations.count; i++) {
+    FSTMutation *mutation = self.mutations[i];
+    if (mutation.key == documentKey) {
+      maybeDoc = [mutation applyToLocalDocument:maybeDoc
+                                   baseDocument:baseDoc
+                                 localWriteTime:self.localWriteTime];
+    }
+  }
+  return maybeDoc;
 }
 
 - (BOOL)isTombstone {
@@ -113,10 +126,10 @@ const FSTBatchID kFSTBatchIDUnknown = -1;
 }
 
 // TODO(klimt): This could use NSMutableDictionary instead.
-- (FSTDocumentKeySet *)keys {
-  FSTDocumentKeySet *set = [FSTDocumentKeySet keySet];
+- (DocumentKeySet)keys {
+  DocumentKeySet set;
   for (FSTMutation *mutation in self.mutations) {
-    set = [set setByAddingObject:mutation.key];
+    set = set.insert(mutation.key);
   }
   return set;
 }
@@ -127,56 +140,66 @@ const FSTBatchID kFSTBatchIDUnknown = -1;
 
 @interface FSTMutationBatchResult ()
 - (instancetype)initWithBatch:(FSTMutationBatch *)batch
-                commitVersion:(FSTSnapshotVersion *)commitVersion
+                commitVersion:(SnapshotVersion)commitVersion
               mutationResults:(NSArray<FSTMutationResult *> *)mutationResults
                   streamToken:(nullable NSData *)streamToken
-                  docVersions:(FSTDocumentVersionDictionary *)docVersions NS_DESIGNATED_INITIALIZER;
+                  docVersions:(DocumentVersionMap)docVersions NS_DESIGNATED_INITIALIZER;
 @end
 
-@implementation FSTMutationBatchResult
+@implementation FSTMutationBatchResult {
+  SnapshotVersion _commitVersion;
+  DocumentVersionMap _docVersions;
+}
 
 - (instancetype)initWithBatch:(FSTMutationBatch *)batch
-                commitVersion:(FSTSnapshotVersion *)commitVersion
+                commitVersion:(SnapshotVersion)commitVersion
               mutationResults:(NSArray<FSTMutationResult *> *)mutationResults
                   streamToken:(nullable NSData *)streamToken
-                  docVersions:(FSTDocumentVersionDictionary *)docVersions {
+                  docVersions:(DocumentVersionMap)docVersions {
   if (self = [super init]) {
     _batch = batch;
-    _commitVersion = commitVersion;
+    _commitVersion = std::move(commitVersion);
     _mutationResults = mutationResults;
     _streamToken = streamToken;
-    _docVersions = docVersions;
+    _docVersions = std::move(docVersions);
   }
   return self;
 }
 
+- (const SnapshotVersion &)commitVersion {
+  return _commitVersion;
+}
+
+- (const DocumentVersionMap &)docVersions {
+  return _docVersions;
+}
+
 + (instancetype)resultWithBatch:(FSTMutationBatch *)batch
-                  commitVersion:(FSTSnapshotVersion *)commitVersion
+                  commitVersion:(SnapshotVersion)commitVersion
                 mutationResults:(NSArray<FSTMutationResult *> *)mutationResults
                     streamToken:(nullable NSData *)streamToken {
-  FSTAssert(batch.mutations.count == mutationResults.count,
-            @"Mutations sent %lu must equal results received %lu",
-            (unsigned long)batch.mutations.count, (unsigned long)mutationResults.count);
+  HARD_ASSERT(batch.mutations.count == mutationResults.count,
+              "Mutations sent %s must equal results received %s", batch.mutations.count,
+              mutationResults.count);
 
-  FSTDocumentVersionDictionary *docVersions =
-      [FSTDocumentVersionDictionary documentVersionDictionary];
+  DocumentVersionMap docVersions;
   NSArray<FSTMutation *> *mutations = batch.mutations;
   for (NSUInteger i = 0; i < mutations.count; i++) {
-    FSTSnapshotVersion *_Nullable version = mutationResults[i].version;
+    absl::optional<SnapshotVersion> version = mutationResults[i].version;
     if (!version) {
       // deletes don't have a version, so we substitute the commitVersion
       // of the entire batch.
       version = commitVersion;
     }
 
-    docVersions = [docVersions dictionaryBySettingObject:version forKey:mutations[i].key];
+    docVersions[mutations[i].key] = version.value();
   }
 
   return [[FSTMutationBatchResult alloc] initWithBatch:batch
-                                         commitVersion:commitVersion
+                                         commitVersion:std::move(commitVersion)
                                        mutationResults:mutationResults
                                            streamToken:streamToken
-                                           docVersions:docVersions];
+                                           docVersions:std::move(docVersions)];
 }
 
 @end

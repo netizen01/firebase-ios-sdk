@@ -1,3 +1,13 @@
+# 3.0.3
+- [changed] Storage operations can now be scheduled and controlled from any thread (#1302, #1388).
+- [fixed] Fixed an issue that prevented uploading of files whose names include semicolons.
+
+# 3.0.2
+- [changed] Migrate to use FirebaseAuthInterop interfaces to access FirebaseAuth (#1660).
+
+# v3.0.1
+- [fixed] Fixed potential `EXC_BAD_ACCESS` violation in the internal logic for processing finished downloads (#1565, #1747).
+
 # v3.0.0
 - [removed] Removed `downloadURLs` property on `StorageMetadata`. Use `StorageReference.downloadURL(completion:)` to obtain a current download URL.
 - [changed] The `maxOperationRetryTime` timeout now applies to calls to `StorageReference.getMetadata(completion:)` and `StorageReference.updateMetadata(completion:)`. These calls previously used the `maxDownloadRetryTime` and `maxUploadRetryTime` timeouts.

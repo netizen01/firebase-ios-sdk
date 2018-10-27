@@ -28,7 +28,7 @@
 #include "Firestore/core/src/firebase/firestore/model/database_id.h"
 #include "Firestore/core/src/firebase/firestore/model/document_key.h"
 #include "Firestore/core/src/firebase/firestore/model/field_path.h"
-#include "Firestore/core/src/firebase/firestore/util/firebase_assert.h"
+#include "Firestore/core/src/firebase/firestore/util/hard_assert.h"
 #include "absl/types/optional.h"
 
 namespace firebase {
@@ -108,28 +108,37 @@ class FieldValue {
     return tag_;
   }
 
+  /**
+   * PORTING NOTE: This deviates from the other platforms that define TypeOrder.
+   * Since we already define Type for union types, we use it together with this
+   * function to achieve the equivalent order of types i.e.
+   *     i) if two types are comparable, then they are of equal order;
+   *    ii) otherwise, their order is the same as the order of their Type.
+   */
+  static bool Comparable(Type lhs, Type rhs);
+
   bool boolean_value() const {
-    FIREBASE_ASSERT(tag_ == Type::Boolean);
+    HARD_ASSERT(tag_ == Type::Boolean);
     return boolean_value_;
   }
 
   int64_t integer_value() const {
-    FIREBASE_ASSERT(tag_ == Type::Integer);
+    HARD_ASSERT(tag_ == Type::Integer);
     return integer_value_;
   }
 
   Timestamp timestamp_value() const {
-    FIREBASE_ASSERT(tag_ == Type::Timestamp);
+    HARD_ASSERT(tag_ == Type::Timestamp);
     return timestamp_value_;
   }
 
   const std::string& string_value() const {
-    FIREBASE_ASSERT(tag_ == Type::String);
+    HARD_ASSERT(tag_ == Type::String);
     return string_value_;
   }
 
   ObjectValue object_value() const {
-    FIREBASE_ASSERT(tag_ == Type::Object);
+    HARD_ASSERT(tag_ == Type::Object);
     return ObjectValue{object_value_};
   }
 
@@ -162,30 +171,30 @@ class FieldValue {
   absl::optional<FieldValue> Get(const FieldPath& field_path) const;
 
   /** factory methods. */
-  static const FieldValue& NullValue();
-  static const FieldValue& TrueValue();
-  static const FieldValue& FalseValue();
-  static const FieldValue& BooleanValue(bool value);
-  static const FieldValue& NanValue();
-  static FieldValue IntegerValue(int64_t value);
-  static FieldValue DoubleValue(double value);
-  static FieldValue TimestampValue(const Timestamp& value);
-  static FieldValue ServerTimestampValue(const Timestamp& local_write_time,
-                                         const Timestamp& previous_value);
-  static FieldValue ServerTimestampValue(const Timestamp& local_write_time);
-  static FieldValue StringValue(const char* value);
-  static FieldValue StringValue(const std::string& value);
-  static FieldValue StringValue(std::string&& value);
-  static FieldValue BlobValue(const uint8_t* source, size_t size);
-  static FieldValue ReferenceValue(const DocumentKey& value,
-                                   const DatabaseId* database_id);
-  static FieldValue ReferenceValue(DocumentKey&& value,
-                                   const DatabaseId* database_id);
-  static FieldValue GeoPointValue(const GeoPoint& value);
-  static FieldValue ArrayValue(const std::vector<FieldValue>& value);
-  static FieldValue ArrayValue(std::vector<FieldValue>&& value);
-  static FieldValue ObjectValueFromMap(const ObjectValue::Map& value);
-  static FieldValue ObjectValueFromMap(ObjectValue::Map&& value);
+  static const FieldValue& Null();
+  static const FieldValue& True();
+  static const FieldValue& False();
+  static const FieldValue& Nan();
+  static const FieldValue& FromBoolean(bool value);
+  static FieldValue FromInteger(int64_t value);
+  static FieldValue FromDouble(double value);
+  static FieldValue FromTimestamp(const Timestamp& value);
+  static FieldValue FromServerTimestamp(const Timestamp& local_write_time,
+                                        const Timestamp& previous_value);
+  static FieldValue FromServerTimestamp(const Timestamp& local_write_time);
+  static FieldValue FromString(const char* value);
+  static FieldValue FromString(const std::string& value);
+  static FieldValue FromString(std::string&& value);
+  static FieldValue FromBlob(const uint8_t* source, size_t size);
+  static FieldValue FromReference(const DocumentKey& value,
+                                  const DatabaseId* database_id);
+  static FieldValue FromReference(DocumentKey&& value,
+                                  const DatabaseId* database_id);
+  static FieldValue FromGeoPoint(const GeoPoint& value);
+  static FieldValue FromArray(const std::vector<FieldValue>& value);
+  static FieldValue FromArray(std::vector<FieldValue>&& value);
+  static FieldValue FromMap(const ObjectValue::Map& value);
+  static FieldValue FromMap(ObjectValue::Map&& value);
 
   friend bool operator<(const FieldValue& lhs, const FieldValue& rhs);
 

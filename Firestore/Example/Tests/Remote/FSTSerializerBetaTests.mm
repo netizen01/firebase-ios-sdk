@@ -21,7 +21,6 @@
 #import <FirebaseFirestore/FIRFirestoreErrors.h>
 #import <FirebaseFirestore/FIRGeoPoint.h>
 #import <FirebaseFirestore/FIRTimestamp.h>
-#import <GRPCClient/GRPCCall.h>
 #import <XCTest/XCTest.h>
 
 #include <vector>
@@ -37,7 +36,6 @@
 #import "Firestore/Protos/objc/google/type/Latlng.pbobjc.h"
 #import "Firestore/Source/API/FIRFieldValue+Internal.h"
 #import "Firestore/Source/Core/FSTQuery.h"
-#import "Firestore/Source/Core/FSTSnapshotVersion.h"
 #import "Firestore/Source/Local/FSTQueryData.h"
 #import "Firestore/Source/Model/FSTDocument.h"
 #import "Firestore/Source/Model/FSTDocumentKey.h"
@@ -58,10 +56,12 @@
 
 namespace testutil = firebase::firestore::testutil;
 namespace util = firebase::firestore::util;
+using firebase::Timestamp;
 using firebase::firestore::model::DatabaseId;
 using firebase::firestore::model::FieldMask;
 using firebase::firestore::model::FieldTransform;
 using firebase::firestore::model::Precondition;
+using firebase::firestore::model::SnapshotVersion;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -288,7 +288,7 @@ NS_ASSUME_NONNULL_BEGIN
     @"n" : [NSNull null],
     @"s" : @"foo",
     @"a" : @[ @2, @"bar",
-              @{ @"b" : @NO } ],
+              @{@"b" : @NO} ],
     @"o" : @{
       @"d" : @100,
       @"nested" : @{@"e" : @(LLONG_MIN)},
@@ -338,7 +338,7 @@ NS_ASSUME_NONNULL_BEGIN
 }
 
 - (void)testEncodesSetMutation {
-  FSTSetMutation *mutation = FSTTestSetMutation(@"docs/1", @{ @"a" : @"b", @"num" : @1 });
+  FSTSetMutation *mutation = FSTTestSetMutation(@"docs/1", @{@"a" : @"b", @"num" : @1});
   GCFSWrite *proto = [GCFSWrite message];
   proto.update = [self.serializer encodedDocumentWithFields:mutation.value key:mutation.key];
 
@@ -348,9 +348,9 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)testEncodesPatchMutation {
   FSTPatchMutation *mutation =
       FSTTestPatchMutation("docs/1",
-                           @{ @"a" : @"b",
-                              @"num" : @1,
-                              @"some.de\\\\ep.th\\ing'" : @2 },
+                           @{@"a" : @"b",
+                             @"num" : @1,
+                             @"some.de\\\\ep.th\\ing'" : @2},
                            {});
   GCFSWrite *proto = [GCFSWrite message];
   proto.update = [self.serializer encodedDocumentWithFields:mutation.value key:mutation.key];
@@ -387,7 +387,7 @@ NS_ASSUME_NONNULL_BEGIN
   FSTTransformMutation *mutation = FSTTestTransformMutation(@"docs/1", @{
     @"a" : [FIRFieldValue fieldValueForArrayUnion:@[ @"a", @2 ]],
     @"bar.baz" : [FIRFieldValue fieldValueForArrayRemove:@[
-      @{ @"x" : @1 }
+      @{@"x" : @1}
     ]]
   });
   GCFSWrite *proto = [GCFSWrite message];
@@ -407,7 +407,7 @@ NS_ASSUME_NONNULL_BEGIN
   arrayRemove.fieldPath = @"bar.baz";
   arrayRemove.removeAllFromArray_p = [GCFSArrayValue message];
   NSMutableArray *removeElements = arrayRemove.removeAllFromArray_p.valuesArray;
-  [removeElements addObject:[self.serializer encodedFieldValue:FSTTestFieldValue(@{ @"x" : @1 })]];
+  [removeElements addObject:[self.serializer encodedFieldValue:FSTTestFieldValue(@{@"x" : @1})]];
   [proto.transform.fieldTransformsArray addObject:arrayRemove];
 
   proto.currentDocument.exists = YES;
@@ -419,13 +419,12 @@ NS_ASSUME_NONNULL_BEGIN
   FSTSetMutation *mutation =
       [[FSTSetMutation alloc] initWithKey:FSTTestDocKey(@"foo/bar")
                                     value:FSTTestObjectValue(
-                                              @{ @"a" : @"b",
-                                                 @"num" : @1 })
+                                              @{@"a" : @"b",
+                                                @"num" : @1})
                              precondition:Precondition::UpdateTime(testutil::Version(4))];
   GCFSWrite *proto = [GCFSWrite message];
   proto.update = [self.serializer encodedDocumentWithFields:mutation.value key:mutation.key];
-  proto.currentDocument.updateTime =
-      [self.serializer encodedTimestamp:[[FIRTimestamp alloc] initWithSeconds:0 nanoseconds:4000]];
+  proto.currentDocument.updateTime = [self.serializer encodedTimestamp:Timestamp{0, 4000}];
 
   [self assertRoundTripForMutation:mutation proto:proto];
 }
@@ -436,6 +435,31 @@ NS_ASSUME_NONNULL_BEGIN
 
   FSTMutation *actualMutation = [self.serializer decodedMutation:proto];
   XCTAssertEqualObjects(actualMutation, mutation);
+}
+
+- (void)testDecodesMutationResult {
+  SnapshotVersion commitVersion = testutil::Version(3000);
+  SnapshotVersion updateVersion = testutil::Version(4000);
+  GCFSWriteResult *proto = [GCFSWriteResult message];
+  proto.updateTime = [self.serializer encodedTimestamp:updateVersion.timestamp()];
+  [proto.transformResultsArray addObject:[self.serializer encodedString:@"result"]];
+
+  FSTMutationResult *result =
+      [self.serializer decodedMutationResult:proto commitVersion:commitVersion];
+
+  XCTAssertEqual(result.version, updateVersion);
+  XCTAssertEqualObjects(result.transformResults, @[ [FSTStringValue stringValue:@"result"] ]);
+}
+
+- (void)testDecodesDeleteMutationResult {
+  GCFSWriteResult *proto = [GCFSWriteResult message];
+  SnapshotVersion commitVersion = testutil::Version(4000);
+
+  FSTMutationResult *result =
+      [self.serializer decodedMutationResult:proto commitVersion:commitVersion];
+
+  XCTAssertEqual(result.version, commitVersion);
+  XCTAssertEqual(result.transformResults.count, 0);
 }
 
 - (void)testRoundTripSpecialFieldNames {
@@ -476,7 +500,7 @@ NS_ASSUME_NONNULL_BEGIN
 }
 
 - (void)testEncodesRelationFilter {
-  FSTRelationFilter *input = FSTTestFilter("item.part.top", @"==", @"food");
+  FSTRelationFilter *input = (FSTRelationFilter *)FSTTestFilter("item.part.top", @"==", @"food");
   GCFSStructuredQuery_Filter *actual = [self.serializer encodedRelationFilter:input];
 
   GCFSStructuredQuery_Filter *expected = [GCFSStructuredQuery_Filter message];
@@ -488,7 +512,8 @@ NS_ASSUME_NONNULL_BEGIN
 }
 
 - (void)testEncodesArrayContainsFilter {
-  FSTRelationFilter *input = FSTTestFilter("item.tags", @"array_contains", @"food");
+  FSTRelationFilter *input =
+      (FSTRelationFilter *)FSTTestFilter("item.tags", @"array_contains", @"food");
   GCFSStructuredQuery_Filter *actual = [self.serializer encodedRelationFilter:input];
 
   GCFSStructuredQuery_Filter *expected = [GCFSStructuredQuery_Filter message];
@@ -708,7 +733,7 @@ NS_ASSUME_NONNULL_BEGIN
                                                    targetID:1
                                        listenSequenceNumber:0
                                                     purpose:FSTQueryPurposeListen
-                                            snapshotVersion:[FSTSnapshotVersion noVersion]
+                                            snapshotVersion:SnapshotVersion::None()
                                                 resumeToken:FSTTestData(1, 2, 3, -1)];
 
   GCFSTarget *expected = [GCFSTarget message];
@@ -729,7 +754,7 @@ NS_ASSUME_NONNULL_BEGIN
                                     targetID:1
                         listenSequenceNumber:0
                                      purpose:FSTQueryPurposeListen
-                             snapshotVersion:[FSTSnapshotVersion noVersion]
+                             snapshotVersion:SnapshotVersion::None()
                                  resumeToken:[NSData data]];
 }
 

@@ -13,15 +13,52 @@
 # limitations under the License.
 
 cc_library(
+  firebase_firestore_remote_connectivity_monitor_apple
+  SOURCES
+    connectivity_monitor.cc
+    connectivity_monitor.h
+    connectivity_monitor_apple.mm
+  DEPENDS
+    absl_base
+    firebase_firestore_util
+  EXCLUDE_FROM_ALL
+)
+
+cc_library(
+  firebase_firestore_remote_connectivity_monitor_noop
+  SOURCES
+    connectivity_monitor.cc
+    connectivity_monitor.h
+    connectivity_monitor_noop.cc
+  DEPENDS
+    absl_base
+    firebase_firestore_util
+  EXCLUDE_FROM_ALL
+)
+
+cc_select(
+  firebase_firestore_remote_connectivity_monitor
+  APPLE   firebase_firestore_remote_connectivity_monitor_apple
+  DEFAULT firebase_firestore_remote_connectivity_monitor_noop
+)
+
+cc_library(
   firebase_firestore_remote
   SOURCES
-    datastore.h
-    datastore.cc
+    grpc_util.h
+    grpc_util.cc
+    exponential_backoff.h
+    exponential_backoff.cc
     serializer.h
     serializer.cc
   DEPENDS
+    # TODO(b/111328563) Force nanopb first to work around ODR violations
+    protobuf-nanopb
+
     firebase_firestore_model
+    firebase_firestore_nanopb
     firebase_firestore_protos_nanopb
-    grpc::grpc
-    nanopb
+    firebase_firestore_remote_connectivity_monitor
+    firebase_firestore_util
+    grpc
 )

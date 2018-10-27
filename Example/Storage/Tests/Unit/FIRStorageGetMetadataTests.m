@@ -18,6 +18,7 @@
 @interface FIRStorageGetMetadataTests : XCTestCase
 
 @property(strong, nonatomic) GTMSessionFetcherService *fetcherService;
+@property(nonatomic) dispatch_queue_t dispatchQueue;
 @property(strong, nonatomic) FIRStorageMetadata *metadata;
 @property(strong, nonatomic) FIRStorage *storage;
 @property(strong, nonatomic) id mockApp;
@@ -35,14 +36,17 @@
   id mockOptions = OCMClassMock([FIROptions class]);
   OCMStub([mockOptions storageBucket]).andReturn(@"bucket.appspot.com");
 
-  self.mockApp = OCMClassMock([FIRApp class]);
+  self.mockApp = [FIRStorageTestHelpers mockedApp];
   OCMStub([self.mockApp name]).andReturn(kFIRStorageAppName);
   OCMStub([(FIRApp *)self.mockApp options]).andReturn(mockOptions);
 
   self.fetcherService = [[GTMSessionFetcherService alloc] init];
   self.fetcherService.authorizer =
-      [[FIRStorageTokenAuthorizer alloc] initWithApp:self.mockApp
-                                      fetcherService:self.fetcherService];
+      [[FIRStorageTokenAuthorizer alloc] initWithGoogleAppID:@"dummyAppID"
+                                              fetcherService:self.fetcherService
+                                                authProvider:nil];
+
+  self.dispatchQueue = dispatch_queue_create("Test dispatch queue", DISPATCH_QUEUE_SERIAL);
 
   self.storage = [FIRStorage storageForApp:self.mockApp];
 }
@@ -76,6 +80,7 @@
   FIRStorageGetMetadataTask *task = [[FIRStorageGetMetadataTask alloc]
       initWithReference:ref
          fetcherService:self.fetcherService
+          dispatchQueue:self.dispatchQueue
              completion:^(FIRStorageMetadata *metadata, NSError *error) {
                [expectation fulfill];
              }];
@@ -93,6 +98,7 @@
   FIRStorageGetMetadataTask *task = [[FIRStorageGetMetadataTask alloc]
       initWithReference:ref
          fetcherService:self.fetcherService
+          dispatchQueue:self.dispatchQueue
              completion:^(FIRStorageMetadata *metadata, NSError *error) {
                XCTAssertEqualObjects(self.metadata.bucket, metadata.bucket);
                XCTAssertEqualObjects(self.metadata.name, metadata.name);
@@ -114,6 +120,7 @@
   FIRStorageGetMetadataTask *task = [[FIRStorageGetMetadataTask alloc]
       initWithReference:ref
          fetcherService:self.fetcherService
+          dispatchQueue:self.dispatchQueue
              completion:^(FIRStorageMetadata *metadata, NSError *error) {
                XCTAssertEqual(metadata, nil);
                XCTAssertEqual(error.code, FIRStorageErrorCodeUnauthenticated);
@@ -134,6 +141,7 @@
   FIRStorageGetMetadataTask *task = [[FIRStorageGetMetadataTask alloc]
       initWithReference:ref
          fetcherService:self.fetcherService
+          dispatchQueue:self.dispatchQueue
              completion:^(FIRStorageMetadata *metadata, NSError *error) {
                XCTAssertEqual(metadata, nil);
                XCTAssertEqual(error.code, FIRStorageErrorCodeUnauthorized);
@@ -154,6 +162,7 @@
   FIRStorageGetMetadataTask *task = [[FIRStorageGetMetadataTask alloc]
       initWithReference:ref
          fetcherService:self.fetcherService
+          dispatchQueue:self.dispatchQueue
              completion:^(FIRStorageMetadata *metadata, NSError *error) {
                XCTAssertEqual(metadata, nil);
                XCTAssertEqual(error.code, FIRStorageErrorCodeObjectNotFound);
@@ -174,6 +183,7 @@
   FIRStorageGetMetadataTask *task = [[FIRStorageGetMetadataTask alloc]
       initWithReference:ref
          fetcherService:self.fetcherService
+          dispatchQueue:self.dispatchQueue
              completion:^(FIRStorageMetadata *metadata, NSError *error) {
                XCTAssertEqual(metadata, nil);
                XCTAssertEqual(error.code, FIRStorageErrorCodeUnknown);

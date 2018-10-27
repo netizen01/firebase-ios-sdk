@@ -17,7 +17,6 @@
 #import "Firestore/Source/Remote/FSTDatastore.h"
 
 #import <FirebaseFirestore/FIRFirestoreErrors.h>
-#import <GRPCClient/GRPCCall.h>
 #import <XCTest/XCTest.h>
 
 @interface FSTDatastoreTests : XCTestCase
@@ -33,13 +32,12 @@
   XCTAssertFalse([FSTDatastore isPermanentWriteError:error]);
 
   // From GRPCCall -startNextRead
-  error =
-      [NSError errorWithDomain:FIRFirestoreErrorDomain
-                          code:FIRFirestoreErrorCodeResourceExhausted
-                      userInfo:@{
-                        NSLocalizedDescriptionKey :
-                            @"Client does not have enough memory to hold the server response."
-                      }];
+  error = [NSError errorWithDomain:FIRFirestoreErrorDomain
+                              code:FIRFirestoreErrorCodeResourceExhausted
+                          userInfo:@{
+                            NSLocalizedDescriptionKey :
+                                @"Client does not have enough memory to hold the server response."
+                          }];
   XCTAssertFalse([FSTDatastore isPermanentWriteError:error]);
 
   // From GRPCCall -startWithWriteable
@@ -51,6 +49,12 @@
   // User info doesn't matter:
   error = [NSError errorWithDomain:FIRFirestoreErrorDomain
                               code:FIRFirestoreErrorCodeUnavailable
+                          userInfo:nil];
+  XCTAssertFalse([FSTDatastore isPermanentWriteError:error]);
+
+  // "unauthenticated" is considered a recoverable error due to expired token.
+  error = [NSError errorWithDomain:FIRFirestoreErrorDomain
+                              code:FIRFirestoreErrorCodeUnauthenticated
                           userInfo:nil];
   XCTAssertFalse([FSTDatastore isPermanentWriteError:error]);
 }

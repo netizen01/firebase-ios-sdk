@@ -36,7 +36,7 @@
   FIRDocumentReference *_docRef;
 
   // Accumulator used to capture events during the test.
-  FSTEventAccumulator *_accumulator;
+  FSTEventAccumulator<FIRDocumentSnapshot *> *_accumulator;
 
   // Listener registration for a listener maintained during the course of the test.
   id<FIRListenerRegistration> _listenerRegistration;
@@ -64,29 +64,11 @@
 
 #pragma mark - Test Helpers
 
-/** Waits for a snapshot with local writes. */
-- (FIRDocumentSnapshot *)waitForLocalEvent {
-  FIRDocumentSnapshot *snapshot;
-  do {
-    snapshot = [_accumulator awaitEventWithName:@"Local event."];
-  } while (!snapshot.metadata.hasPendingWrites);
-  return snapshot;
-}
-
-/** Waits for a snapshot that has no pending writes */
-- (FIRDocumentSnapshot *)waitForRemoteEvent {
-  FIRDocumentSnapshot *snapshot;
-  do {
-    snapshot = [_accumulator awaitEventWithName:@"Remote event."];
-  } while (snapshot.metadata.hasPendingWrites);
-  return snapshot;
-}
-
 /** Writes some initial data and consumes the events generated. */
 - (void)writeInitialData:(NSDictionary<NSString *, id> *)data {
   [self writeDocumentRef:_docRef data:data];
-  XCTAssertEqualObjects([self waitForLocalEvent].data, data);
-  XCTAssertEqualObjects([self waitForRemoteEvent].data, data);
+  XCTAssertEqualObjects([_accumulator awaitLocalEvent].data, data);
+  XCTAssertEqualObjects([_accumulator awaitRemoteEvent].data, data);
 }
 
 #pragma mark - Test Cases
@@ -96,39 +78,39 @@
                     data:@{
                       @"array" : [FIRFieldValue fieldValueForArrayUnion:@[ @1, @2 ]]
                     }];
-  id expected = @{ @"array" : @[ @1, @2 ] };
-  XCTAssertEqualObjects([self waitForLocalEvent].data, expected);
-  XCTAssertEqualObjects([self waitForRemoteEvent].data, expected);
+  id expected = @{@"array" : @[ @1, @2 ]};
+  XCTAssertEqualObjects([_accumulator awaitLocalEvent].data, expected);
+  XCTAssertEqualObjects([_accumulator awaitRemoteEvent].data, expected);
 }
 
 - (void)testAppendToArrayViaUpdate {
-  [self writeInitialData:@{ @"array" : @[ @1, @3 ] }];
+  [self writeInitialData:@{@"array" : @[ @1, @3 ]}];
 
   [self updateDocumentRef:_docRef
                      data:@{
                        @"array" : [FIRFieldValue fieldValueForArrayUnion:@[ @2, @1, @4 ]]
                      }];
 
-  id expected = @{ @"array" : @[ @1, @3, @2, @4 ] };
-  XCTAssertEqualObjects([self waitForLocalEvent].data, expected);
-  XCTAssertEqualObjects([self waitForRemoteEvent].data, expected);
+  id expected = @{@"array" : @[ @1, @3, @2, @4 ]};
+  XCTAssertEqualObjects([_accumulator awaitLocalEvent].data, expected);
+  XCTAssertEqualObjects([_accumulator awaitRemoteEvent].data, expected);
 }
 
 - (void)testAppendToArrayViaMergeSet {
-  [self writeInitialData:@{ @"array" : @[ @1, @3 ] }];
+  [self writeInitialData:@{@"array" : @[ @1, @3 ]}];
 
   [self mergeDocumentRef:_docRef
                     data:@{
                       @"array" : [FIRFieldValue fieldValueForArrayUnion:@[ @2, @1, @4 ]]
                     }];
 
-  id expected = @{ @"array" : @[ @1, @3, @2, @4 ] };
-  XCTAssertEqualObjects([self waitForLocalEvent].data, expected);
-  XCTAssertEqualObjects([self waitForRemoteEvent].data, expected);
+  id expected = @{@"array" : @[ @1, @3, @2, @4 ]};
+  XCTAssertEqualObjects([_accumulator awaitLocalEvent].data, expected);
+  XCTAssertEqualObjects([_accumulator awaitRemoteEvent].data, expected);
 }
 
 - (void)testAppendObjectToArrayViaUpdate {
-  [self writeInitialData:@{ @"array" : @[ @{@"a" : @"hi"} ] }];
+  [self writeInitialData:@{@"array" : @[ @{@"a" : @"hi"} ]}];
 
   [self updateDocumentRef:_docRef
                      data:@{
@@ -136,48 +118,48 @@
                            fieldValueForArrayUnion:@[ @{@"a" : @"hi"}, @{@"a" : @"bye"} ]]
                      }];
 
-  id expected = @{ @"array" : @[ @{@"a" : @"hi"}, @{@"a" : @"bye"} ] };
-  XCTAssertEqualObjects([self waitForLocalEvent].data, expected);
-  XCTAssertEqualObjects([self waitForRemoteEvent].data, expected);
+  id expected = @{@"array" : @[ @{@"a" : @"hi"}, @{@"a" : @"bye"} ]};
+  XCTAssertEqualObjects([_accumulator awaitLocalEvent].data, expected);
+  XCTAssertEqualObjects([_accumulator awaitRemoteEvent].data, expected);
 }
 
 - (void)testRemoveFromArrayViaUpdate {
-  [self writeInitialData:@{ @"array" : @[ @1, @3, @1, @3 ] }];
+  [self writeInitialData:@{@"array" : @[ @1, @3, @1, @3 ]}];
 
   [self updateDocumentRef:_docRef
                      data:@{
                        @"array" : [FIRFieldValue fieldValueForArrayRemove:@[ @1, @4 ]]
                      }];
 
-  id expected = @{ @"array" : @[ @3, @3 ] };
-  XCTAssertEqualObjects([self waitForLocalEvent].data, expected);
-  XCTAssertEqualObjects([self waitForRemoteEvent].data, expected);
+  id expected = @{@"array" : @[ @3, @3 ]};
+  XCTAssertEqualObjects([_accumulator awaitLocalEvent].data, expected);
+  XCTAssertEqualObjects([_accumulator awaitRemoteEvent].data, expected);
 }
 
 - (void)testRemoveFromArrayViaMergeSet {
-  [self writeInitialData:@{ @"array" : @[ @1, @3, @1, @3 ] }];
+  [self writeInitialData:@{@"array" : @[ @1, @3, @1, @3 ]}];
 
   [self mergeDocumentRef:_docRef
                     data:@{
                       @"array" : [FIRFieldValue fieldValueForArrayRemove:@[ @1, @4 ]]
                     }];
 
-  id expected = @{ @"array" : @[ @3, @3 ] };
-  XCTAssertEqualObjects([self waitForLocalEvent].data, expected);
-  XCTAssertEqualObjects([self waitForRemoteEvent].data, expected);
+  id expected = @{@"array" : @[ @3, @3 ]};
+  XCTAssertEqualObjects([_accumulator awaitLocalEvent].data, expected);
+  XCTAssertEqualObjects([_accumulator awaitRemoteEvent].data, expected);
 }
 
 - (void)testRemoveObjectFromArrayViaUpdate {
-  [self writeInitialData:@{ @"array" : @[ @{@"a" : @"hi"}, @{@"a" : @"bye"} ] }];
+  [self writeInitialData:@{@"array" : @[ @{@"a" : @"hi"}, @{@"a" : @"bye"} ]}];
 
   [self updateDocumentRef:_docRef
                      data:@{
                        @"array" : [FIRFieldValue fieldValueForArrayRemove:@[ @{@"a" : @"hi"} ]]
                      }];
 
-  id expected = @{ @"array" : @[ @{@"a" : @"bye"} ] };
-  XCTAssertEqualObjects([self waitForLocalEvent].data, expected);
-  XCTAssertEqualObjects([self waitForRemoteEvent].data, expected);
+  id expected = @{@"array" : @[ @{@"a" : @"bye"} ]};
+  XCTAssertEqualObjects([_accumulator awaitLocalEvent].data, expected);
+  XCTAssertEqualObjects([_accumulator awaitRemoteEvent].data, expected);
 }
 
 @end
@@ -224,7 +206,7 @@
                     data:@{
                       @"array" : [FIRFieldValue fieldValueForArrayUnion:@[ @1, @2 ]]
                     }];
-  id expected = @{ @"array" : @[ @1, @2 ] };
+  id expected = @{@"array" : @[ @1, @2 ]};
   XCTAssertEqualObjects([self getFromCache].data, expected);
 }
 
@@ -257,13 +239,13 @@
                     }];
 
   // Document will be cached but we'll be missing 42.
-  id expected = @{ @"array" : @[ @1, @2 ] };
+  id expected = @{@"array" : @[ @1, @2 ]};
   XCTAssertEqualObjects([self getFromCache].data, expected);
 }
 
 - (void)testServerApplicationOfArrayUnionUpdateWithCachedBaseDoc {
   // Cache a document with an array.
-  [self writeDocumentRef:_docRef data:@{ @"array" : @[ @42 ] }];
+  [self writeDocumentRef:_docRef data:@{@"array" : @[ @42 ]}];
 
   [self updateDocumentRef:_docRef
                      data:@{
@@ -271,13 +253,13 @@
                      }];
 
   // Should have merged the update with the cached doc.
-  id expected = @{ @"array" : @[ @42, @1, @2 ] };
+  id expected = @{@"array" : @[ @42, @1, @2 ]};
   XCTAssertEqualObjects([self getFromCache].data, expected);
 }
 
 - (void)testServerApplicationOfArrayRemoveUpdateWithCachedBaseDoc {
   // Cache a document with an array.
-  [self writeDocumentRef:_docRef data:@{ @"array" : @[ @42, @1, @2 ] }];
+  [self writeDocumentRef:_docRef data:@{@"array" : @[ @42, @1, @2 ]}];
 
   [self updateDocumentRef:_docRef
                      data:@{
@@ -285,7 +267,7 @@
                      }];
 
   // Should have merged the update with the cached doc.
-  id expected = @{ @"array" : @[ @42 ] };
+  id expected = @{@"array" : @[ @42 ]};
   XCTAssertEqualObjects([self getFromCache].data, expected);
 }
 @end

@@ -17,9 +17,16 @@
 #import "Firestore/Example/Tests/Util/FSTIntegrationTestCase.h"
 
 #import <FirebaseCore/FIRLogger.h>
-#import <FirebaseFirestore/FirebaseFirestore-umbrella.h>
-#import <GRPCClient/GRPCCall+ChannelArg.h>
-#import <GRPCClient/GRPCCall+Tests.h>
+#import <FirebaseCore/FIROptions.h>
+#import <FirebaseFirestore/FIRCollectionReference.h>
+#import <FirebaseFirestore/FIRDocumentChange.h>
+#import <FirebaseFirestore/FIRDocumentReference.h>
+#import <FirebaseFirestore/FIRDocumentSnapshot.h>
+#import <FirebaseFirestore/FIRFirestore.h>
+#import <FirebaseFirestore/FIRFirestoreSettings.h>
+#import <FirebaseFirestore/FIRQuerySnapshot.h>
+#import <FirebaseFirestore/FIRSnapshotMetadata.h>
+#import <FirebaseFirestore/FIRTransaction.h>
 
 #include <memory>
 #include <string>
@@ -27,8 +34,14 @@
 
 #include "Firestore/core/src/firebase/firestore/auth/empty_credentials_provider.h"
 #include "Firestore/core/src/firebase/firestore/model/database_id.h"
+#include "Firestore/core/src/firebase/firestore/remote/grpc_connection.h"
 #include "Firestore/core/src/firebase/firestore/util/autoid.h"
+#include "Firestore/core/src/firebase/firestore/util/filesystem.h"
+#include "Firestore/core/src/firebase/firestore/util/path.h"
 #include "Firestore/core/src/firebase/firestore/util/string_apple.h"
+#include "Firestore/core/test/firebase/firestore/testutil/app_testing.h"
+#include "Firestore/core/test/firebase/firestore/util/status_test_util.h"
+
 #include "absl/memory/memory.h"
 
 #import "Firestore/Source/API/FIRFirestore+Internal.h"
@@ -42,13 +55,26 @@ namespace util = firebase::firestore::util;
 using firebase::firestore::auth::CredentialsProvider;
 using firebase::firestore::auth::EmptyCredentialsProvider;
 using firebase::firestore::model::DatabaseId;
+using firebase::firestore::testutil::AppForUnitTesting;
+using firebase::firestore::remote::GrpcConnection;
 using firebase::firestore::util::CreateAutoId;
+using firebase::firestore::util::Path;
+using firebase::firestore::util::Status;
 
 NS_ASSUME_NONNULL_BEGIN
+
+/**
+ * Firestore databases can be subject to a ~30s "cold start" delay if they have not been used
+ * recently, so before any tests run we "prime" the backend.
+ */
+static const double kPrimingTimeout = 45.0;
 
 @interface FIRFirestore (Testing)
 @property(nonatomic, strong) FSTDispatchQueue *workerDispatchQueue;
 @end
+
+static NSString *defaultProjectId;
+static FIRFirestoreSettings *defaultSettings;
 
 @implementation FSTIntegrationTestCase {
   NSMutableArray<FIRFirestore *> *_firestores;
@@ -70,70 +96,86 @@ NS_ASSUME_NONNULL_BEGIN
       [self shutdownFirestore:firestore];
     }
   } @finally {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-    [GRPCCall closeOpenConnections];
-#pragma clang diagnostic pop
     _firestores = nil;
     [super tearDown];
   }
 }
 
 - (void)clearPersistence {
-  NSString *levelDBDir = [FSTLevelDB documentsDirectory];
-  NSError *error;
-  if (![[NSFileManager defaultManager] removeItemAtPath:levelDBDir error:&error]) {
-    // file not found is okay.
-    XCTAssertTrue(
-        [error.domain isEqualToString:NSCocoaErrorDomain] && error.code == NSFileNoSuchFileError,
-        @"Failed to clear LevelDB Persistence: %@", error);
-  }
+  Path levelDBDir = [FSTLevelDB documentsDirectory];
+  Status status = util::RecursivelyDelete(levelDBDir);
+  ASSERT_OK(status);
 }
 
 - (FIRFirestore *)firestore {
   return [self firestoreWithProjectID:[FSTIntegrationTestCase projectID]];
 }
 
-+ (NSString *)projectID {
++ (void)setUpDefaults {
+  defaultSettings = [[FIRFirestoreSettings alloc] init];
+  defaultSettings.persistenceEnabled = YES;
+  defaultSettings.timestampsInSnapshotsEnabled = YES;
+
+  // Check for a MobileHarness configuration, running against nightly or prod, which have live
+  // SSL certs.
   NSString *project = [[NSProcessInfo processInfo] environment][@"PROJECT_ID"];
-  if (!project) {
-    project = @"test-db";
+  NSString *host = [[NSProcessInfo processInfo] environment][@"DATASTORE_HOST"];
+  if (project && host) {
+    defaultProjectId = project;
+    defaultSettings.host = host;
+    return;
   }
-  return project;
+
+  // Check for configuration of a prod project via GoogleServices-Info.plist.
+  FIROptions *options = [FIROptions defaultOptions];
+  if (options && ![options.projectID isEqualToString:@"abc-xyz-123"]) {
+    defaultProjectId = options.projectID;
+    if (host) {
+      // Allow access to nightly or other hosts via this mechanism too.
+      defaultSettings.host = host;
+    }
+    return;
+  }
+
+  // Otherwise fall back on assuming Hexa on localhost.
+  defaultProjectId = @"test-db";
+  defaultSettings.host = @"localhost:8081";
+
+  // Hexa uses a self-signed cert: the first bundle location is used by bazel builds. The second is
+  // used for github clones.
+  NSString *certsPath =
+      [[NSBundle mainBundle] pathForResource:@"PlugIns/IntegrationTests.xctest/CAcert"
+                                      ofType:@"pem"];
+  if (certsPath == nil) {
+    certsPath = [[NSBundle bundleForClass:[self class]] pathForResource:@"CAcert" ofType:@"pem"];
+  }
+  unsigned long long fileSize =
+      [[[NSFileManager defaultManager] attributesOfItemAtPath:certsPath error:nil] fileSize];
+
+  if (fileSize == 0) {
+    NSLog(
+        @"Please set up a GoogleServices-Info.plist for Firestore in Firestore/Example/App using "
+         "instructions at <https://github.com/firebase/firebase-ios-sdk#running-sample-apps>. "
+         "Alternatively, if you're a Googler with a Hexa preproduction environment, run "
+         "setup_integration_tests.py to properly configure testing SSL certificates.");
+  }
+  GrpcConnection::UseTestCertificate(util::MakeString(defaultSettings.host),
+                                     Path::FromNSString(certsPath), "test_cert_2");
+}
+
++ (NSString *)projectID {
+  if (!defaultProjectId) {
+    [self setUpDefaults];
+  }
+  return defaultProjectId;
 }
 
 + (FIRFirestoreSettings *)settings {
-  FIRFirestoreSettings *settings = [[FIRFirestoreSettings alloc] init];
-  NSString *host = [[NSProcessInfo processInfo] environment][@"DATASTORE_HOST"];
-  settings.sslEnabled = YES;
-  if (!host) {
-    // If host is nil, there is no GoogleService-Info.plist. Check if a hexa integration test
-    // configuration is configured. The first bundle location is used by bazel builds. The
-    // second is used for github clones.
-    host = @"localhost:8081";
-    settings.sslEnabled = YES;
-    NSString *certsPath =
-        [[NSBundle mainBundle] pathForResource:@"PlugIns/IntegrationTests.xctest/CAcert"
-                                        ofType:@"pem"];
-    if (certsPath == nil) {
-      certsPath = [[NSBundle bundleForClass:[self class]] pathForResource:@"CAcert" ofType:@"pem"];
-    }
-    unsigned long long fileSize =
-        [[[NSFileManager defaultManager] attributesOfItemAtPath:certsPath error:nil] fileSize];
-
-    if (fileSize == 0) {
-      NSLog(
-          @"The cert is not properly configured. Make sure setup_integration_tests.py "
-           "has been run.");
-    }
-    [GRPCCall useTestCertsPath:certsPath testName:@"test_cert_2" forHost:host];
+  if (!defaultSettings) {
+    [self setUpDefaults];
   }
-  settings.host = host;
-  settings.persistenceEnabled = YES;
-  settings.timestampsInSnapshotsEnabled = YES;
-  NSLog(@"Configured integration test for %@ with SSL: %@", settings.host,
-        settings.sslEnabled ? @"YES" : @"NO");
-  return settings;
+
+  return defaultSettings;
 }
 
 - (FIRFirestore *)firestoreWithProjectID:(NSString *)projectID {
@@ -143,12 +185,12 @@ NS_ASSUME_NONNULL_BEGIN
       queueWith:dispatch_queue_create("com.google.firebase.firestore", DISPATCH_QUEUE_SERIAL)];
 
   FIRSetLoggerLevel(FIRLoggerLevelDebug);
-  // HACK: FIRFirestore expects a non-nil app, but for tests we cheat.
-  FIRApp *app = nil;
+
+  FIRApp *app = AppForUnitTesting();
   std::unique_ptr<CredentialsProvider> credentials_provider =
       absl::make_unique<firebase::firestore::auth::EmptyCredentialsProvider>();
 
-  FIRFirestore *firestore = [[FIRFirestore alloc] initWithProjectID:util::MakeStringView(projectID)
+  FIRFirestore *firestore = [[FIRFirestore alloc] initWithProjectID:util::MakeString(projectID)
                                                            database:DatabaseId::kDefault
                                                      persistenceKey:persistenceKey
                                                 credentialsProvider:std::move(credentials_provider)
@@ -158,7 +200,53 @@ NS_ASSUME_NONNULL_BEGIN
   firestore.settings = [FSTIntegrationTestCase settings];
 
   [_firestores addObject:firestore];
+
+  [self primeBackend:firestore];
+
   return firestore;
+}
+
+- (void)primeBackend:(FIRFirestore *)db {
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    XCTestExpectation *watchInitialized =
+        [self expectationWithDescription:@"Prime backend: Watch initialized"];
+    __block XCTestExpectation *watchUpdateReceived;
+    FIRDocumentReference *docRef = [db documentWithPath:[self documentPath]];
+    id<FIRListenerRegistration> listenerRegistration =
+        [docRef addSnapshotListener:^(FIRDocumentSnapshot *snapshot, NSError *error) {
+          if ([snapshot[@"value"] isEqual:@"done"]) {
+            [watchUpdateReceived fulfill];
+          } else {
+            [watchInitialized fulfill];
+          }
+        }];
+
+    // Wait for watch to initialize and deliver first event.
+    [self awaitExpectations];
+
+    watchUpdateReceived = [self expectationWithDescription:@"Prime backend: Watch update received"];
+
+    // Use a transaction to perform a write without triggering any local events.
+    [docRef.firestore
+        runTransactionWithBlock:^id(FIRTransaction *transaction, NSError **pError) {
+          [transaction setData:@{@"value" : @"done"} forDocument:docRef];
+          return nil;
+        }
+                     completion:^(id result, NSError *error){
+                     }];
+
+    // Wait to see the write on the watch stream.
+    [self waitForExpectationsWithTimeout:kPrimingTimeout
+                                 handler:^(NSError *_Nullable expectationError) {
+                                   if (expectationError) {
+                                     XCTFail(@"Error waiting for prime backend: %@",
+                                             expectationError);
+                                   }
+                                 }];
+
+    [listenerRegistration remove];
+  });
 }
 
 - (void)shutdownFirestore:(FIRFirestore *)firestore {
@@ -291,6 +379,15 @@ NS_ASSUME_NONNULL_BEGIN
   [ref setData:data
            merge:YES
       completion:[self completionForExpectationWithName:@"setDataWithMerge"]];
+  [self awaitExpectations];
+}
+
+- (void)mergeDocumentRef:(FIRDocumentReference *)ref
+                    data:(NSDictionary<NSString *, id> *)data
+                  fields:(NSArray<id> *)fields {
+  [ref setData:data
+      mergeFields:fields
+       completion:[self completionForExpectationWithName:@"setDataWithMerge"]];
   [self awaitExpectations];
 }
 

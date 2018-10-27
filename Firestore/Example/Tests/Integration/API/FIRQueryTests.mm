@@ -20,7 +20,6 @@
 
 #import "Firestore/Example/Tests/Util/FSTEventAccumulator.h"
 #import "Firestore/Example/Tests/Util/FSTIntegrationTestCase.h"
-#import "Firestore/Source/API/FIRQuery+Internal.h"
 
 @interface FIRQueryTests : FSTIntegrationTestCase
 @end
@@ -52,10 +51,10 @@
                                       queryLimitedTo:2]];
 
   XCTAssertEqualObjects(FIRQuerySnapshotGetData(snapshot), (@[
-                          @{ @"k" : @"d",
-                             @"sort" : @2 },
-                          @{ @"k" : @"c",
-                             @"sort" : @1 }
+                          @{@"k" : @"d",
+                            @"sort" : @2},
+                          @{@"k" : @"c",
+                            @"sort" : @1}
                         ]));
 }
 
@@ -89,8 +88,8 @@
                                             isEqualTo:@(NAN)]];
 
   XCTAssertEqualObjects(FIRQuerySnapshotGetData(results), (@[
-                          @{ @"null" : [NSNull null],
-                             @"nan" : @(NAN) }
+                          @{@"null" : [NSNull null],
+                            @"nan" : @(NAN)}
                         ]));
 }
 
@@ -137,7 +136,7 @@
   FIRQuerySnapshot *results =
       [self readDocumentSetForRef:[collRef queryWhereField:@"inf" isEqualTo:@(INFINITY)]];
 
-  XCTAssertEqualObjects(FIRQuerySnapshotGetData(results), (@[ @{ @"inf" : @(INFINITY) } ]));
+  XCTAssertEqualObjects(FIRQuerySnapshotGetData(results), (@[ @{@"inf" : @(INFINITY)} ]));
 }
 
 - (void)testCanExplicitlySortByDocumentID {
@@ -251,17 +250,12 @@
                                            listener:self.eventAccumulator.valueEventHandler];
 
   FIRQuerySnapshot *querySnap = [self.eventAccumulator awaitEventWithName:@"initial event"];
-  XCTAssertEqualObjects(FIRQuerySnapshotGetData(querySnap), @[ @{ @"foo" : @1 } ]);
+  XCTAssertEqualObjects(FIRQuerySnapshotGetData(querySnap), @[ @{@"foo" : @1} ]);
   XCTAssertEqual(querySnap.metadata.isFromCache, NO);
 
   [self disableNetwork];
   querySnap = [self.eventAccumulator awaitEventWithName:@"offline event with isFromCache=YES"];
   XCTAssertEqual(querySnap.metadata.isFromCache, YES);
-
-  // TODO(b/70631617): There's currently a backend bug that prevents us from using a resume token
-  // right away (against hexa at least). So we sleep. :-( :-( Anything over ~10ms seems to be
-  // sufficient.
-  [NSThread sleepForTimeInterval:0.2f];
 
   [self enableNetwork];
   querySnap = [self.eventAccumulator awaitEventWithName:@"back online event with isFromCache=NO"];
@@ -274,9 +268,7 @@
   FIRCollectionReference *col = [self collectionRef];
 
   // set a few docs to known values
-  NSDictionary *initialDocs =
-      @{ @"doc1" : @{@"key1" : @"value1"},
-         @"doc2" : @{@"key2" : @"value2"} };
+  NSDictionary *initialDocs = @{@"doc1" : @{@"key1" : @"value1"}, @"doc2" : @{@"key2" : @"value2"}};
   [self writeAllDocuments:initialDocs toCollection:col];
 
   // go offline for the rest of this test
@@ -293,13 +285,12 @@
                         ]));
 }
 
-// TODO(array-features): Enable once backend support lands.
-- (void)xtestArrayContainsQueries {
+- (void)testArrayContainsQueries {
   NSDictionary *testDocs = @{
     @"a" : @{@"array" : @[ @42 ]},
     @"b" : @{@"array" : @[ @"a", @42, @"c" ]},
     @"c" : @{@"array" : @[ @41.999, @"42",
-                           @{ @"a" : @[ @42 ] } ]},
+                           @{@"a" : @[ @42 ]} ]},
     @"d" : @{@"array" : @[ @42 ], @"array2" : @[ @"bingo" ]}
   };
   FIRCollectionReference *collection = [self collectionRefWithDocuments:testDocs];
@@ -308,27 +299,10 @@
   FIRQuerySnapshot *snapshot =
       [self readDocumentSetForRef:[collection queryWhereField:@"array" arrayContains:@42]];
   XCTAssertEqualObjects(FIRQuerySnapshotGetData(snapshot), (@[
-                          @{ @"array" : @[ @42 ] },
-                          @{ @"array" : @[ @"a", @42, @"c" ] },
-                          @{ @"array" : @[ @42 ],
-                             @"array2" : @[ @"bingo" ] }
-                        ]));
-
-  // Search for "array" to contain both @42 and "a".
-  snapshot = [self readDocumentSetForRef:[[collection queryWhereField:@"array" arrayContains:@42]
-                                             queryWhereField:@"array"
-                                               arrayContains:@"a"]];
-  XCTAssertEqualObjects(FIRQuerySnapshotGetData(snapshot), (@[
-                          @{ @"array" : @[ @"a", @42, @"c" ] },
-                        ]));
-
-  // Search two different array fields ("array" contains 42 and "array2" contains "bingo").
-  snapshot = [self readDocumentSetForRef:[[collection queryWhereField:@"array" arrayContains:@42]
-                                             queryWhereField:@"array2"
-                                               arrayContains:@"bingo"]];
-  XCTAssertEqualObjects(FIRQuerySnapshotGetData(snapshot), (@[
-                          @{ @"array" : @[ @42 ],
-                             @"array2" : @[ @"bingo" ] }
+                          @{@"array" : @[ @42 ]},
+                          @{@"array" : @[ @"a", @42, @"c" ]},
+                          @{@"array" : @[ @42 ],
+                            @"array2" : @[ @"bingo" ]}
                         ]));
 
   // NOTE: The backend doesn't currently support null, NaN, objects, or arrays, so there isn't much
