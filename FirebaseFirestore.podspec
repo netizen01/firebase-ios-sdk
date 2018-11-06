@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name             = 'FirebaseFirestore'
-  s.version          = '0.13.6'
+  s.version          = '0.14.0'
   s.summary          = 'Google Cloud Firestore for iOS'
 
   s.description      = <<-DESC
@@ -27,7 +27,7 @@ Google Cloud Firestore is a NoSQL document database built for automatic scaling,
   s.source_files = [
     'Firestore/Source/**/*',
     'Firestore/Port/**/*',
-    'Firestore/Protos/nanopb/**/*.[hc]',
+    'Firestore/Protos/nanopb/**/*.{h,cc}',
     'Firestore/Protos/objc/**/*.[hm]',
     'Firestore/core/include/**/*.{h,cc,mm}',
     'Firestore/core/src/**/*.{h,cc,mm}',
@@ -51,12 +51,9 @@ Google Cloud Firestore is a NoSQL document database built for automatic scaling,
   ]
   s.public_header_files = 'Firestore/Source/Public/*.h'
 
-  # TODO(varconst): remove once https://github.com/grpc/grpc/pull/16962 makes it
-  # into a release.
-  s.resource_bundles = { 'gRPCCertificates' => ['Firestore/etc/roots.pem'] }
-
   s.dependency 'FirebaseAuthInterop', '~> 1.0'
   s.dependency 'FirebaseCore', '~> 5.1'
+  s.dependency 'gRPC-ProtoRPC', '~> 1.0'
   s.dependency 'gRPC-C++', '~> 0.0.3'
   s.dependency 'leveldb-library', '~> 1.20'
   s.dependency 'Protobuf', '~> 3.1'
@@ -73,7 +70,7 @@ Google Cloud Firestore is a NoSQL document database built for automatic scaling,
       # The nanopb pod sets these defs, so we must too. (We *do* require 16bit
       # (or larger) fields, so we'd have to set at least PB_FIELD_16BIT
       # anyways.)
-      'PB_FIELD_32BIT=1 PB_NO_PACKED_STRUCTS=1',
+      'PB_FIELD_32BIT=1 PB_NO_PACKED_STRUCTS=1 PB_ENABLE_MALLOC=1',
     'HEADER_SEARCH_PATHS' =>
       '"${PODS_TARGET_SRCROOT}" ' +
       '"${PODS_TARGET_SRCROOT}/Firestore/third_party/abseil-cpp" ' +
