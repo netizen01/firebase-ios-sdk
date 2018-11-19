@@ -20,6 +20,8 @@
 #import <FirebaseFirestore/FIRDocumentReference.h>
 #import <FirebaseFirestore/FIRSnapshotMetadata.h>
 
+#include <string>
+
 #import "Firestore/Source/API/FIRCollectionReference+Internal.h"
 #import "Firestore/Source/API/FIRDocumentReference+Internal.h"
 #import "Firestore/Source/API/FIRDocumentSnapshot+Internal.h"
@@ -51,7 +53,7 @@ FIRFirestore *FSTTestFirestore() {
                                                     database:"abc"
                                               persistenceKey:@"db123"
                                          credentialsProvider:nil
-                                         workerDispatchQueue:nil
+                                                 workerQueue:nil
                                                  firebaseApp:nil];
   });
 #pragma clang diagnostic pop
@@ -102,7 +104,7 @@ FIRQuerySnapshot *FSTTestQuerySnapshot(
                                                hasPendingWrites ? FSTDocumentStateLocalMutations
                                                                 : FSTDocumentStateSynced)];
     if (hasPendingWrites) {
-      const absl::string_view documentKey = util::StringFormat("%s/%s", path, key);
+      const std::string documentKey = util::StringFormat("%s/%s", path, key);
       mutatedKeys = mutatedKeys.insert(testutil::Key(documentKey));
     }
   }
@@ -118,7 +120,7 @@ FIRQuerySnapshot *FSTTestQuerySnapshot(
                                 changeWithDocument:docToAdd
                                               type:FSTDocumentViewChangeTypeAdded]];
     if (hasPendingWrites) {
-      const absl::string_view documentKey = util::StringFormat("%s/%s", path, key);
+      const std::string documentKey = util::StringFormat("%s/%s", path, key);
       mutatedKeys = mutatedKeys.insert(testutil::Key(documentKey));
     }
   }
@@ -128,7 +130,8 @@ FIRQuerySnapshot *FSTTestQuerySnapshot(
                                                          documentChanges:documentChanges
                                                                fromCache:fromCache
                                                              mutatedKeys:mutatedKeys
-                                                        syncStateChanged:YES];
+                                                        syncStateChanged:YES
+                                                 excludesMetadataChanges:NO];
   return [FIRQuerySnapshot snapshotWithFirestore:FSTTestFirestore()
                                    originalQuery:FSTTestQuery(path)
                                         snapshot:viewSnapshot
