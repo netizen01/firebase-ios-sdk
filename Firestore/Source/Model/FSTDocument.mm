@@ -23,6 +23,7 @@
 
 #include "Firestore/core/src/firebase/firestore/model/document_key.h"
 #include "Firestore/core/src/firebase/firestore/model/field_path.h"
+#include "Firestore/core/src/firebase/firestore/util/comparison.h"
 #include "Firestore/core/src/firebase/firestore/util/hard_assert.h"
 #include "Firestore/core/src/firebase/firestore/util/hashing.h"
 #include "Firestore/core/src/firebase/firestore/util/string_apple.h"
@@ -55,7 +56,7 @@ NS_ASSUME_NONNULL_BEGIN
   return self;
 }
 
-- (BOOL)hasPendingWrites {
+- (bool)hasPendingWrites {
   @throw FSTAbstractMethodException();  // NOLINT
 }
 
@@ -88,6 +89,18 @@ NS_ASSUME_NONNULL_BEGIN
                                      state:state];
 }
 
++ (instancetype)documentWithData:(FSTObjectValue *)data
+                             key:(DocumentKey)key
+                         version:(SnapshotVersion)version
+                           state:(FSTDocumentState)state
+                           proto:(GCFSDocument *)proto {
+  return [[FSTDocument alloc] initWithData:data
+                                       key:std::move(key)
+                                   version:std::move(version)
+                                     state:state
+                                     proto:proto];
+}
+
 - (instancetype)initWithData:(FSTObjectValue *)data
                          key:(DocumentKey)key
                      version:(SnapshotVersion)version
@@ -96,19 +109,34 @@ NS_ASSUME_NONNULL_BEGIN
   if (self) {
     _data = data;
     _documentState = state;
+    _proto = nil;
   }
   return self;
 }
 
-- (BOOL)hasLocalMutations {
+- (instancetype)initWithData:(FSTObjectValue *)data
+                         key:(DocumentKey)key
+                     version:(SnapshotVersion)version
+                       state:(FSTDocumentState)state
+                       proto:(GCFSDocument *)proto {
+  self = [super initWithKey:std::move(key) version:std::move(version)];
+  if (self) {
+    _data = data;
+    _documentState = state;
+    _proto = proto;
+  }
+  return self;
+}
+
+- (bool)hasLocalMutations {
   return _documentState == FSTDocumentStateLocalMutations;
 }
 
-- (BOOL)hasCommittedMutations {
+- (bool)hasCommittedMutations {
   return _documentState == FSTDocumentStateCommittedMutations;
 }
 
-- (BOOL)hasPendingWrites {
+- (bool)hasPendingWrites {
   return self.hasLocalMutations || self.hasCommittedMutations;
 }
 
@@ -126,7 +154,7 @@ NS_ASSUME_NONNULL_BEGIN
 }
 
 - (NSUInteger)hash {
-  NSUInteger result = [self.key hash];
+  NSUInteger result = self.key.Hash();
   result = result * 31 + self.version.Hash();
   result = result * 31 + [self.data hash];
   result = result * 31 + _documentState;
@@ -147,14 +175,14 @@ NS_ASSUME_NONNULL_BEGIN
 @end
 
 @implementation FSTDeletedDocument {
-  BOOL _hasCommittedMutations;
+  bool _hasCommittedMutations;
 }
 
 + (instancetype)documentWithKey:(DocumentKey)key
                         version:(SnapshotVersion)version
-          hasCommittedMutations:(BOOL)committedMutations {
-  FSTDeletedDocument *deletedDocument =
-      [[FSTDeletedDocument alloc] initWithKey:std::move(key) version:std::move(version)];
+          hasCommittedMutations:(bool)committedMutations {
+  FSTDeletedDocument *deletedDocument = [[FSTDeletedDocument alloc] initWithKey:std::move(key)
+                                                                        version:std::move(version)];
 
   if (deletedDocument) {
     deletedDocument->_hasCommittedMutations = committedMutations;
@@ -163,11 +191,11 @@ NS_ASSUME_NONNULL_BEGIN
   return deletedDocument;
 }
 
-- (BOOL)hasCommittedMutations {
+- (bool)hasCommittedMutations {
   return _hasCommittedMutations;
 }
 
-- (BOOL)hasPendingWrites {
+- (bool)hasPendingWrites {
   return self.hasCommittedMutations;
 }
 
@@ -185,7 +213,7 @@ NS_ASSUME_NONNULL_BEGIN
 }
 
 - (NSUInteger)hash {
-  NSUInteger result = [self.key hash];
+  NSUInteger result = self.key.Hash();
   result = result * 31 + self.version.Hash();
   result = result * 31 + (_hasCommittedMutations ? 1 : 0);
   return result;
@@ -206,8 +234,8 @@ NS_ASSUME_NONNULL_BEGIN
   return [[FSTUnknownDocument alloc] initWithKey:std::move(key) version:std::move(version)];
 }
 
-- (BOOL)hasPendingWrites {
-  return YES;
+- (bool)hasPendingWrites {
+  return true;
 }
 
 - (BOOL)isEqual:(id)other {
@@ -223,7 +251,7 @@ NS_ASSUME_NONNULL_BEGIN
 }
 
 - (NSUInteger)hash {
-  NSUInteger result = [self.key hash];
+  NSUInteger result = self.key.Hash();
   result = result * 31 + self.version.Hash();
   return result;
 }
@@ -235,10 +263,5 @@ NS_ASSUME_NONNULL_BEGIN
 }
 
 @end
-
-const NSComparator FSTDocumentComparatorByKey =
-    ^NSComparisonResult(FSTMaybeDocument *doc1, FSTMaybeDocument *doc2) {
-      return [doc1.key compare:doc2.key];
-    };
 
 NS_ASSUME_NONNULL_END

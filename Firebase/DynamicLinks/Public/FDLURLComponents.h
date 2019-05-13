@@ -506,28 +506,34 @@ FIR_SWIFT_NAME(DynamicLinkComponents)
 @property(nonatomic, nullable, readonly) NSURL *url;
 
 /**
- * @method componentsWithLink:domain:
+ * @method componentsWithLink:domainURIPrefix:
  * @abstract Generates a Dynamic Link URL components object with the minimum necessary parameters
  *     set to generate a fully-functional Dynamic Link.
  * @param link Deep link to be stored in created Dynamic link. This link also called "payload" of
  *     the Dynamic link.
- * @param domain Domain of your App. This value must be equal to your assigned domain from Firebase
- *     Console.
+ * @param domainURIPrefix Domain URI Prefix of your App. This value must be your assigned
+ * domain from the Firebase console. (e.g. https://xyz.page.link)  The domain URI prefix must
+ * start with a valid HTTPS scheme (https://).
+ * @return Returns an instance of FIRDynamicLinkComponents if the parameters succeed validation,
+ * else returns nil.
  */
-+ (instancetype)componentsWithLink:(NSURL *)link
-                            domain:(NSString *)domain
-    NS_SWIFT_UNAVAILABLE("Use init(link:domain:)");
++ (nullable instancetype)componentsWithLink:(NSURL *)link
+                            domainURIPrefix:(NSString *)domainURIPrefix
+    NS_SWIFT_UNAVAILABLE("Use init(link:domainURIPrefix:)");
 
 /**
- * @method initWithLink:domain:
+ * @method initWithLink:domainURIPrefix:
  * @abstract Generates a Dynamic Link URL components object with the minimum necessary parameters
  *     set to generate a fully-functional Dynamic Link.
  * @param link Deep link to be stored in created Dynamic link. This link also called "payload" of
  *     the Dynamic link.
- * @param domain Domain of your App. This value must be equal to your assigned domain from Firebase
- *     Console.
+ * @param domainURIPrefix Domain URI Prefix of your App. This value must be your assigned
+ * domain from the Firebase console. (e.g. https://xyz.page.link)  The domain URI prefix must
+ * start with a valid HTTPS scheme (https://).
+ * @return Returns an instance of FIRDynamicLinkComponents if the parameters succeed validation,
+ * else returns nil.
  */
-- (instancetype)initWithLink:(NSURL *)link domain:(NSString *)domain;
+- (nullable instancetype)initWithLink:(NSURL *)link domainURIPrefix:(NSString *)domainURIPrefix;
 
 /**
  * @method shortenURL:options:completion:

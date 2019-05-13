@@ -82,8 +82,8 @@ extern NSString *const kFIRLibraryVersionID;
 }
 
 - (void)testInitCustomizedOptions {
-  FIROptions *options =
-      [[FIROptions alloc] initWithGoogleAppID:kGoogleAppID GCMSenderID:kGCMSenderID];
+  FIROptions *options = [[FIROptions alloc] initWithGoogleAppID:kGoogleAppID
+                                                    GCMSenderID:kGCMSenderID];
   options.APIKey = kAPIKey;
   options.bundleID = kBundleID;
   options.clientID = kClientID;
@@ -98,8 +98,13 @@ extern NSString *const kFIRLibraryVersionID;
 }
 
 - (void)testInitWithContentsOfFile {
-  NSString *filePath =
-      [[NSBundle mainBundle] pathForResource:@"GoogleService-Info" ofType:@"plist"];
+  NSString *filePath = [[NSBundle mainBundle] pathForResource:@"GoogleService-Info"
+                                                       ofType:@"plist"];
+  if (filePath == nil) {
+    // Use bundleForClass to allow GoogleService-Info.plist to be in the test target's bundle.
+    NSBundle *bundle = [NSBundle bundleForClass:[self class]];
+    filePath = [bundle pathForResource:@"GoogleService-Info" ofType:@"plist"];
+  }
   FIROptions *options = [[FIROptions alloc] initWithContentsOfFile:filePath];
   [self assertOptionsMatchDefaults:options andProjectID:YES];
   XCTAssertNil(options.deepLinkURLScheme);
@@ -136,8 +141,8 @@ extern NSString *const kFIRLibraryVersionID;
 
 - (void)testCopyingProperties {
   NSMutableString *mutableString;
-  FIROptions *options =
-      [[FIROptions alloc] initWithGoogleAppID:kGoogleAppID GCMSenderID:kGCMSenderID];
+  FIROptions *options = [[FIROptions alloc] initWithGoogleAppID:kGoogleAppID
+                                                    GCMSenderID:kGCMSenderID];
   mutableString = [[NSMutableString alloc] initWithString:@"1"];
   options.APIKey = mutableString;
   [mutableString appendString:@"2"];
@@ -208,8 +213,8 @@ extern NSString *const kFIRLibraryVersionID;
   XCTAssertEqualObjects(newOptions.deepLinkURLScheme, kDeepLinkURLScheme);
 
   // customized options
-  FIROptions *customizedOptions =
-      [[FIROptions alloc] initWithGoogleAppID:kGoogleAppID GCMSenderID:kGCMSenderID];
+  FIROptions *customizedOptions = [[FIROptions alloc] initWithGoogleAppID:kGoogleAppID
+                                                              GCMSenderID:kGCMSenderID];
   customizedOptions.deepLinkURLScheme = kDeepLinkURLScheme;
   FIROptions *copyCustomizedOptions = [customizedOptions copy];
   [copyCustomizedOptions setDeepLinkURLScheme:kNewDeepLinkURLScheme];
@@ -466,20 +471,16 @@ extern NSString *const kFIRLibraryVersionID;
   OCMStub([appMock isDataCollectionDefaultEnabled]).andReturn(YES);
 
   // Test the three Analytics flags that override to disable Analytics collection.
-  FIROptions *collectionEnabledOptions = [[FIROptions alloc] initInternalWithOptionsDictionary:@{
-    kFIRIsAnalyticsCollectionEnabled : @NO
-  }];
+  FIROptions *collectionEnabledOptions = [[FIROptions alloc]
+      initInternalWithOptionsDictionary:@{kFIRIsAnalyticsCollectionEnabled : @NO}];
   XCTAssertFalse(collectionEnabledOptions.isAnalyticsCollectionEnabled);
 
-  FIROptions *collectionDeactivatedOptions =
-      [[FIROptions alloc] initInternalWithOptionsDictionary:@{
-        kFIRIsAnalyticsCollectionDeactivated : @YES
-      }];
+  FIROptions *collectionDeactivatedOptions = [[FIROptions alloc]
+      initInternalWithOptionsDictionary:@{kFIRIsAnalyticsCollectionDeactivated : @YES}];
   XCTAssertFalse(collectionDeactivatedOptions.isAnalyticsCollectionEnabled);
 
-  FIROptions *measurementEnabledOptions = [[FIROptions alloc] initInternalWithOptionsDictionary:@{
-    kFIRIsMeasurementEnabled : @NO
-  }];
+  FIROptions *measurementEnabledOptions =
+      [[FIROptions alloc] initInternalWithOptionsDictionary:@{kFIRIsMeasurementEnabled : @NO}];
   XCTAssertFalse(measurementEnabledOptions.isAnalyticsCollectionEnabled);
 }
 
@@ -491,14 +492,12 @@ extern NSString *const kFIRLibraryVersionID;
   OCMStub([appMock isDataCollectionDefaultEnabled]).andReturn(NO);
 
   // Test the two Analytics flags that can override and enable collection.
-  FIROptions *collectionEnabledOptions = [[FIROptions alloc] initInternalWithOptionsDictionary:@{
-    kFIRIsAnalyticsCollectionEnabled : @YES
-  }];
+  FIROptions *collectionEnabledOptions = [[FIROptions alloc]
+      initInternalWithOptionsDictionary:@{kFIRIsAnalyticsCollectionEnabled : @YES}];
   XCTAssertTrue(collectionEnabledOptions.isAnalyticsCollectionEnabled);
 
-  FIROptions *measurementEnabledOptions = [[FIROptions alloc] initInternalWithOptionsDictionary:@{
-    kFIRIsMeasurementEnabled : @YES
-  }];
+  FIROptions *measurementEnabledOptions =
+      [[FIROptions alloc] initInternalWithOptionsDictionary:@{kFIRIsMeasurementEnabled : @YES}];
   XCTAssertTrue(measurementEnabledOptions.isAnalyticsCollectionEnabled);
 }
 
@@ -534,31 +533,27 @@ extern NSString *const kFIRLibraryVersionID;
 
   // Test the old measurement flag.
   options = [[FIROptions alloc] initInternalWithOptionsDictionary:@{}];
-  analyticsOptions = [options analyticsOptionsDictionaryWithInfoDictionary:@{
-    kFIRIsMeasurementEnabled : @YES
-  }];
+  analyticsOptions =
+      [options analyticsOptionsDictionaryWithInfoDictionary:@{kFIRIsMeasurementEnabled : @YES}];
   XCTAssertTrue([options isAnalyticsCollectionExpicitlySet]);
 
   options = [[FIROptions alloc] initInternalWithOptionsDictionary:@{}];
-  analyticsOptions = [options analyticsOptionsDictionaryWithInfoDictionary:@{
-    kFIRIsMeasurementEnabled : @NO
-  }];
+  analyticsOptions =
+      [options analyticsOptionsDictionaryWithInfoDictionary:@{kFIRIsMeasurementEnabled : @NO}];
   XCTAssertTrue([options isAnalyticsCollectionExpicitlySet]);
 
   // For good measure, a combination of all 3 (even if they conflict).
   optionsDictionary =
-      @{kFIRIsAnalyticsCollectionDeactivated : @YES,
-        kFIRIsAnalyticsCollectionEnabled : @YES};
+      @{kFIRIsAnalyticsCollectionDeactivated : @YES, kFIRIsAnalyticsCollectionEnabled : @YES};
   options = [[FIROptions alloc] initInternalWithOptionsDictionary:optionsDictionary];
-  analyticsOptions = [options analyticsOptionsDictionaryWithInfoDictionary:@{
-    kFIRIsMeasurementEnabled : @NO
-  }];
+  analyticsOptions =
+      [options analyticsOptionsDictionaryWithInfoDictionary:@{kFIRIsMeasurementEnabled : @NO}];
   XCTAssertTrue([options isAnalyticsCollectionExpicitlySet]);
 }
 
 - (void)testModifyingOptionsThrows {
-  FIROptions *options =
-      [[FIROptions alloc] initWithGoogleAppID:kGoogleAppID GCMSenderID:kGCMSenderID];
+  FIROptions *options = [[FIROptions alloc] initWithGoogleAppID:kGoogleAppID
+                                                    GCMSenderID:kGCMSenderID];
   options.editingLocked = YES;
 
   // Modification to every property should result in an exception.
@@ -585,12 +580,26 @@ extern NSString *const kFIRLibraryVersionID;
   XCTAssertEqual(numberOfMatches, 1, @"Incorrect library version format.");
 }
 
+// TODO: The version test will break when the Firebase major version hits 10.
 - (void)testVersionConsistency {
   const char *versionString = [kFIRLibraryVersionID UTF8String];
   int major = versionString[0] - '0';
   int minor = (versionString[1] - '0') * 10 + versionString[2] - '0';
   int patch = (versionString[3] - '0') * 10 + versionString[4] - '0';
   NSString *str = [NSString stringWithFormat:@"%d.%d.%d", major, minor, patch];
+  XCTAssertEqualObjects(str, [NSString stringWithUTF8String:(const char *)FIRCoreVersionString]);
+}
+
+// Repeat test with more Objective-C.
+// TODO: The version test will break when the Firebase major version hits 10.
+- (void)testVersionConsistency2 {
+  NSRange major = NSMakeRange(0, 1);
+  NSRange minor = NSMakeRange(1, 2);
+  NSRange patch = NSMakeRange(3, 2);
+  NSString *str =
+      [NSString stringWithFormat:@"%@.%d.%d", [kFIRLibraryVersionID substringWithRange:major],
+                                 [[kFIRLibraryVersionID substringWithRange:minor] intValue],
+                                 [[kFIRLibraryVersionID substringWithRange:patch] intValue]];
   XCTAssertEqualObjects(str, [NSString stringWithUTF8String:(const char *)FIRCoreVersionString]);
 }
 

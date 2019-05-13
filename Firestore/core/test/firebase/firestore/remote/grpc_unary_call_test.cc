@@ -36,14 +36,13 @@ namespace remote {
 using util::AsyncQueue;
 using util::ByteBufferToString;
 using util::CompletionEndState;
+using util::CompletionResult;
 using util::CreateNoOpConnectivityMonitor;
 using util::ExecutorStd;
 using util::GrpcStreamTester;
 using util::MakeByteBuffer;
 using util::Status;
 using util::StatusOr;
-using util::CompletionResult::Error;
-using util::CompletionResult::Ok;
 using Type = GrpcCompletion::Type;
 
 class GrpcUnaryCallTest : public testing::Test {
@@ -118,23 +117,6 @@ TEST_F(GrpcUnaryCallTest, CanGetResponseHeadersAfterFinishing) {
     call->FinishImmediately();
     EXPECT_NO_THROW(call->GetResponseHeaders());
   });
-}
-
-// Method prerequisites -- incorrect usage
-
-// Death tests should contain the word "DeathTest" in their name -- see
-// https://github.com/google/googletest/blob/master/googletest/docs/advanced.md#death-test-naming
-using GrpcUnaryCallDeathTest = GrpcUnaryCallTest;
-
-TEST_F(GrpcUnaryCallDeathTest, CannotStartTwice) {
-  StartCall();
-  EXPECT_DEATH_IF_SUPPORTED(StartCall(), "");
-}
-
-TEST_F(GrpcUnaryCallDeathTest, CannotRestart) {
-  StartCall();
-  ForceFinish({{Type::Finish, Ok}});
-  EXPECT_DEATH_IF_SUPPORTED(StartCall(), "");
 }
 
 TEST_F(GrpcUnaryCallTest, CannotFinishAndNotifyBeforeStarting) {

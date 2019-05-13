@@ -20,8 +20,15 @@
 
 #import <FirebaseAuthInterop/FIRAuthInterop.h>
 #import <FirebaseCore/FIRAppInternal.h>
+
+#import <FirebaseAuth/FIREmailAuthProvider.h>
+#import <FirebaseAuth/FIRGoogleAuthProvider.h>
+#import <FirebaseAuth/FIRAdditionalUserInfo.h>
+
 #import <FirebaseCore/FIRComponent.h>
-#import <FirebaseCore/FIRComponentRegistrant.h>
+#import <FirebaseCore/FIRLibrary.h>
+
+#import <GoogleUtilities/GULAppDelegateSwizzler.h>
 
 #import "FIRAdditionalUserInfo.h"
 #import "FIRAuth_Internal.h"
@@ -41,7 +48,7 @@
 #import "FIRGetAccountInfoResponse.h"
 #import "FIRGetOOBConfirmationCodeRequest.h"
 #import "FIRGetOOBConfirmationCodeResponse.h"
-#import "FIRGoogleAuthProvider.h"
+#import "FIROAuthProvider.h"
 #import "FIRSecureTokenRequest.h"
 #import "FIRSecureTokenResponse.h"
 #import "FIRResetPasswordRequest.h"
@@ -59,24 +66,20 @@
 #import "FIRVerifyPhoneNumberRequest.h"
 #import "FIRVerifyPhoneNumberResponse.h"
 #import "FIRApp+FIRAuthUnitTests.h"
+#import "OAuth/FIROAuthCredential_Internal.h"
 #import "OCMStubRecorder+FIRAuthUnitTests.h"
 #import <OCMock/OCMock.h>
 #import "FIRActionCodeSettings.h"
 
 #if TARGET_OS_IOS
+#import "FIRAuthAPNSToken.h"
+#import "FIRAuthAPNSTokenManager.h"
+#import "FIRAuthNotificationManager.h"
+#import "FIRAuthUIDelegate.h"
+#import "FIRAuthURLPresenter.h"
 #import "FIRPhoneAuthCredential.h"
 #import "FIRPhoneAuthProvider.h"
-#endif
-
-/** @var kFirebaseAppName1
-    @brief A fake Firebase app name.
- */
-static NSString *const kFirebaseAppName1 = @"FIREBASE_APP_NAME_1";
-
-/** @var kFirebaseAppName2
-    @brief Another fake Firebase app name.
- */
-static NSString *const kFirebaseAppName2 = @"FIREBASE_APP_NAME_2";
+#endif // TARGET_OS_IOS
 
 /** @var kAPIKey
     @brief The fake API key.
@@ -173,6 +176,21 @@ static NSString *const kVerificationCode = @"12345678";
  */
 static NSString *const kVerificationID = @"55432";
 
+/** @var kOAuthRequestURI
+    @brief Fake OAuthRequest URI for testing.
+ */
+static NSString *const kOAuthRequestURI = @"requestURI";
+
+/** @var kOAuthSessionID
+    @brief Fake session ID for testing.
+ */
+static NSString *const kOAuthSessionID = @"sessionID";
+
+/** @var kFakeWebSignInUserInteractionFailureReason
+    @brief Fake reason for FIRAuthErrorCodeWebSignInUserInteractionFailure error while testing.
+ */
+static NSString *const kFakeWebSignInUserInteractionFailureReason = @"fake_reason";
+
 /** @var kContinueURL
     @brief Fake string value of continue url.
  */
@@ -224,15 +242,62 @@ static const NSTimeInterval kExpectationTimeout = 2;
  */
 static const NSTimeInterval kWaitInterval = .5;
 
+#if TARGET_OS_IOS
+/** @class FIRAuthAppDelegate
+    @brief Application delegate implementation to test the app delegate proxying
+ */
+@interface FIRAuthAppDelegate : NSObject <UIApplicationDelegate>
+@end
+
+@implementation FIRAuthAppDelegate
+- (void)application:(UIApplication *)application
+didReceiveRemoteNotification:(NSDictionary *)userInfo
+fetchCompletionHandler:(void (^)(UIBackgroundFetchResult))completionHandler {
+}
+
+- (BOOL)application:(UIApplication *)app
+            openURL:(NSURL *)url
+            options:(NSDictionary<UIApplicationOpenURLOptionsKey,id> *)options {
+  return NO;
+}
+
+- (BOOL)application:(UIApplication *)application
+            openURL:(NSURL *)url
+  sourceApplication:(nullable NSString *)sourceApplication
+         annotation:(id)annotation {
+  return NO;
+}
+
+@end
+
+#endif // TARGET_OS_IOS
+
+@interface GULAppDelegateSwizzler (FIRMessagingRemoteNotificationsProxyTest)
++ (void)resetProxyOriginalDelegateOnceToken;
+@end
+
 /** Category for FIRAuth to expose FIRComponentRegistrant conformance. */
-@interface FIRAuth () <FIRComponentRegistrant>
+@interface FIRAuth () <FIRLibrary>
 @end
 
 /** @class FIRAuthTests
     @brief Tests for @c FIRAuth.
  */
 @interface FIRAuthTests : XCTestCase
+#if TARGET_OS_IOS
+/// A partial mock of `[FIRAuth auth].tokenManager`
+@property(nonatomic, strong) id mockTokenManager;
+/// A partial mock of `[FIRAuth auth].notificationManager`
+@property(nonatomic, strong) id mockNotificationManager;
+/// A partial mock of `[FIRAuth auth].authURLPresenter`
+@property(nonatomic, strong) id mockAuthURLPresenter;
+/// A partial mock of `[UIApplication sharedApplication]`
+@property(nonatomic, strong) id mockApplication;
+/// An application delegate instance returned by `self.mockApplication.delegate`
+@property(nonatomic, strong) FIRAuthAppDelegate *fakeApplicationDelegate;
+#endif // TARGET_OS_IOS
 @end
+
 @implementation FIRAuthTests {
 
   /** @var _mockBackend
@@ -265,6 +330,16 @@ static const NSTimeInterval kWaitInterval = .5;
 
 - (void)setUp {
   [super setUp];
+
+#if TARGET_OS_IOS
+  // Make sure the `self.fakeApplicationDelegate` will be swizzled on FIRAuth init.
+  [GULAppDelegateSwizzler resetProxyOriginalDelegateOnceToken];
+
+  self.fakeApplicationDelegate = [[FIRAuthAppDelegate alloc] init];
+  self.mockApplication = OCMPartialMock([UIApplication sharedApplication]);
+  OCMStub([self.mockApplication delegate]).andReturn(self.fakeApplicationDelegate);
+#endif // TARGET_OS_IOS
+
   _mockBackend = OCMProtocolMock(@protocol(FIRAuthBackendImplementation));
   [FIRAuthBackend setBackendImplementation:_mockBackend];
   [FIRApp resetAppForAuthUnitTests];
@@ -280,103 +355,33 @@ static const NSTimeInterval kWaitInterval = .5;
     XCTAssertEqualObjects(FIRAuthGlobalWorkQueue(), queue);
     _FIRAuthDispatcherCallback = task;
   }];
+
+#if TARGET_OS_IOS
+  // Wait until FIRAuth initialization completes
+  [self waitForAuthGlobalWorkQueueDrain];
+  self.mockTokenManager = OCMPartialMock([FIRAuth auth].tokenManager);
+  self.mockNotificationManager = OCMPartialMock([FIRAuth auth].notificationManager);
+  self.mockAuthURLPresenter = OCMPartialMock([FIRAuth auth].authURLPresenter);
+#endif // TARGET_OS_IOS
 }
 
 - (void)tearDown {
   [FIRAuthBackend setDefaultBackendImplementationWithRPCIssuer:nil];
   [[FIRAuthDispatcher sharedInstance] setDispatchAfterImplementation:nil];
+
+#if TARGET_OS_IOS
+  [self.mockAuthURLPresenter stopMocking];
+  self.mockAuthURLPresenter = nil;
+  [self.mockNotificationManager stopMocking];
+  self.mockNotificationManager = nil;
+  [self.mockTokenManager stopMocking];
+  self.mockTokenManager = nil;
+  [self.mockApplication stopMocking];
+  self.mockApplication = nil;
+  self.fakeApplicationDelegate = nil;
+#endif // TARGET_OS_IOS
+
   [super tearDown];
-}
-
-#pragma mark - Life Cycle Tests
-
-/** @fn testSingleton
-    @brief Verifies the @c auth method behaves like a singleton.
- */
-- (void)testSingleton {
-  FIRAuth *auth1 = [FIRAuth auth];
-  XCTAssertNotNil(auth1);
-  FIRAuth *auth2 = [FIRAuth auth];
-  XCTAssertEqual(auth1, auth2);
-}
-
-/** @fn testDefaultAuth
-    @brief Verifies the @c auth method associates with the default Firebase app.
- */
-- (void)testDefaultAuth {
-  FIRAuth *auth1 = [FIRAuth auth];
-  FIRAuth *auth2 = [FIRAuth authWithApp:[FIRApp defaultApp]];
-  XCTAssertEqual(auth1, auth2);
-  XCTAssertEqual(auth1.app, [FIRApp defaultApp]);
-}
-
-/** @fn testNilAppException
-    @brief Verifies the @c auth method raises an exception if the default FIRApp is not configured.
- */
-- (void)testNilAppException {
-  [FIRApp resetApps];
-  XCTAssertThrows([FIRAuth auth]);
-}
-
-/** @fn testAppAPIkey
-    @brief Verifies the API key is correctly copied from @c FIRApp to @c FIRAuth .
- */
-- (void)testAppAPIkey {
-  FIRAuth *auth = [FIRAuth auth];
-  XCTAssertEqualObjects(auth.requestConfiguration.APIKey, kAPIKey);
-}
-
-/** @fn testAppAssociation
-    @brief Verifies each @c FIRApp instance associates with a @c FIRAuth .
- */
-- (void)testAppAssociation {
-  FIRApp *app1 = [self app1];
-  FIRAuth *auth1 = [FIRAuth authWithApp:app1];
-  XCTAssertNotNil(auth1);
-  XCTAssertEqual(auth1.app, app1);
-
-  FIRApp *app2 = [self app2];
-  FIRAuth *auth2 = [FIRAuth authWithApp:app2];
-  XCTAssertNotNil(auth2);
-  XCTAssertEqual(auth2.app, app2);
-
-  XCTAssertNotEqual(auth1, auth2);
-}
-
-/** @fn testLifeCycle
-    @brief Verifies the life cycle of @c FIRAuth is the same as its associated @c FIRApp .
- */
-- (void)testLifeCycle {
-  __weak FIRApp *app;
-  __weak FIRAuth *auth;
-  @autoreleasepool {
-    FIRApp *app1 = [self app1];
-    app = app1;
-    auth = [FIRAuth authWithApp:app1];
-    // Verify that neither the app nor the auth is released yet, i.e., the app owns the auth
-    // because nothing else retains the auth.
-    XCTAssertNotNil(app);
-    XCTAssertNotNil(auth);
-  }
-  [self waitForTimeIntervel:kWaitInterval];
-  // Verify that both the app and the auth are released upon exit of the autorelease pool,
-  // i.e., the app is the sole owner of the auth.
-  XCTAssertNil(app);
-  XCTAssertNil(auth);
-}
-
-/** @fn testGetUID
-    @brief Verifies that FIRApp's getUIDImplementation is correctly set by FIRAuth.
- */
-- (void)testGetUID {
-  // TODO: Remove this test once Firestore, Database, and Storage move over to the new Auth interop
-  //       library.
-  FIRApp *app = [FIRApp defaultApp];
-  XCTAssertNotNil(app.getUIDImplementation);
-  [[FIRAuth auth] signOut:NULL];
-  XCTAssertNil(app.getUIDImplementation());
-  [self waitForSignIn];
-  XCTAssertEqualObjects(app.getUIDImplementation(), kLocalID);
 }
 
 #pragma mark - Server API Tests
@@ -439,42 +444,6 @@ static const NSTimeInterval kWaitInterval = .5;
     XCTAssertTrue([NSThread isMainThread]);
     XCTAssertEqualObjects(signInMethods, allSignInMethods);
     XCTAssertTrue([allSignInMethods isKindOfClass:[NSArray class]]);
-    XCTAssertNil(error);
-    [expectation fulfill];
-  }];
-  [self waitForExpectationsWithTimeout:kExpectationTimeout handler:nil];
-  OCMVerifyAll(_mockBackend);
-}
-
-/** @fn testFetchProvidersForEmailSuccessDeprecatedProviderID
-    @brief Tests the flow of a successful @c fetchProvidersForEmail:completion: call using the
-        deprecated FIREmailPasswordAuthProviderID.
- */
-- (void)testFetchProvidersForEmailSuccessDeprecatedProviderID {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-  NSArray<NSString *> *allProviders =
-      @[ FIRGoogleAuthProviderID, FIREmailPasswordAuthProviderID ];
-#pragma clang diagnostic pop
-  OCMExpect([_mockBackend createAuthURI:[OCMArg any]
-                               callback:[OCMArg any]])
-      .andCallBlock2(^(FIRCreateAuthURIRequest *_Nullable request,
-                       FIRCreateAuthURIResponseCallback callback) {
-    XCTAssertEqualObjects(request.identifier, kEmail);
-    XCTAssertNotNil(request.endpoint);
-    XCTAssertEqualObjects(request.APIKey, kAPIKey);
-    dispatch_async(FIRAuthGlobalWorkQueue(), ^() {
-      id mockCreateAuthURIResponse = OCMClassMock([FIRCreateAuthURIResponse class]);
-      OCMStub([mockCreateAuthURIResponse allProviders]).andReturn(allProviders);
-      callback(mockCreateAuthURIResponse, nil);
-    });
-  });
-  XCTestExpectation *expectation = [self expectationWithDescription:@"callback"];
-  [[FIRAuth auth] fetchProvidersForEmail:kEmail
-                              completion:^(NSArray<NSString *> *_Nullable providers,
-                                           NSError *_Nullable error) {
-    XCTAssertTrue([NSThread isMainThread]);
-    XCTAssertEqualObjects(providers, allProviders);
     XCTAssertNil(error);
     [expectation fulfill];
   }];
@@ -547,9 +516,9 @@ static const NSTimeInterval kWaitInterval = .5;
       [[FIRPhoneAuthProvider provider] credentialWithVerificationID:kVerificationID
                                                    verificationCode:kVerificationCode];
 
-  [[FIRAuth auth] signInAndRetrieveDataWithCredential:credential
-                                           completion:^(FIRAuthDataResult *_Nullable authDataResult,
-                                                        NSError *_Nullable error) {
+  [[FIRAuth auth] signInWithCredential:credential
+                            completion:^(FIRAuthDataResult *_Nullable authDataResult,
+                                         NSError *_Nullable error) {
     XCTAssertTrue([NSThread isMainThread]);
     [self assertUser:authDataResult.user];
     XCTAssertTrue(authDataResult.additionalUserInfo.isNewUser);
@@ -573,10 +542,10 @@ static const NSTimeInterval kWaitInterval = .5;
       [[FIRPhoneAuthProvider provider] credentialWithVerificationID:kVerificationID
                                                    verificationCode:@""];
 
-  [[FIRAuth auth] signInWithCredential:credential completion:^(FIRUser *_Nullable user,
+  [[FIRAuth auth] signInWithCredential:credential completion:^(FIRAuthDataResult * _Nullable result,
                                                                NSError *_Nullable error) {
     XCTAssertTrue([NSThread isMainThread]);
-    XCTAssertNil(user);
+    XCTAssertNil(result);
     XCTAssertEqual(error.code, FIRAuthErrorCodeMissingVerificationCode);
     [expectation fulfill];
   }];
@@ -595,10 +564,10 @@ static const NSTimeInterval kWaitInterval = .5;
       [[FIRPhoneAuthProvider provider] credentialWithVerificationID:@""
                                                    verificationCode:kVerificationCode];
 
-  [[FIRAuth auth] signInWithCredential:credential completion:^(FIRUser *_Nullable user,
+  [[FIRAuth auth] signInWithCredential:credential completion:^(FIRAuthDataResult * _Nullable result,
                                                                NSError *_Nullable error) {
     XCTAssertTrue([NSThread isMainThread]);
-    XCTAssertNil(user);
+    XCTAssertNil(result);
     XCTAssertEqual(error.code, FIRAuthErrorCodeMissingVerificationID);
     [expectation fulfill];
   }];
@@ -779,10 +748,9 @@ static const NSTimeInterval kWaitInterval = .5;
   [self expectGetAccountInfo];
   XCTestExpectation *expectation = [self expectationWithDescription:@"callback"];
   [[FIRAuth auth] signOut:NULL];
-  [[FIRAuth auth] signInAndRetrieveDataWithEmail:kEmail
-                                        password:kFakePassword
-                                      completion:^(FIRAuthDataResult *_Nullable result,
-                                                   NSError *_Nullable error) {
+  [[FIRAuth auth] signInWithEmail:kEmail
+                         password:kFakePassword
+                       completion:^(FIRAuthDataResult *_Nullable result, NSError *_Nullable error) {
     XCTAssertTrue([NSThread isMainThread]);
     [self assertUser:result.user];
     XCTAssertFalse(result.additionalUserInfo.isNewUser);
@@ -803,10 +771,9 @@ static const NSTimeInterval kWaitInterval = .5;
       .andDispatchError2([FIRAuthErrorUtils wrongPasswordErrorWithMessage:nil]);
   XCTestExpectation *expectation = [self expectationWithDescription:@"callback"];
   [[FIRAuth auth] signOut:NULL];
-  [[FIRAuth auth] signInAndRetrieveDataWithEmail:kEmail
-                                        password:kFakePassword
-                                      completion:^(FIRAuthDataResult *_Nullable result,
-                                                   NSError *_Nullable error) {
+  [[FIRAuth auth] signInWithEmail:kEmail
+                         password:kFakePassword
+                       completion:^(FIRAuthDataResult *_Nullable result, NSError *_Nullable error) {
     XCTAssertTrue([NSThread isMainThread]);
     XCTAssertNil(result);
     XCTAssertEqual(error.code, FIRAuthErrorCodeWrongPassword);
@@ -1055,9 +1022,9 @@ static const NSTimeInterval kWaitInterval = .5;
   [[FIRAuth auth] signOut:NULL];
   FIRAuthCredential *emailCredential =
   [FIREmailAuthProvider credentialWithEmail:kEmail link:kFakeEmailSignInlink];
-  [[FIRAuth auth] signInAndRetrieveDataWithCredential:emailCredential
-                                           completion:^(FIRAuthDataResult *_Nullable authResult,
-                                                        NSError *_Nullable error) {
+  [[FIRAuth auth] signInWithCredential:emailCredential
+                            completion:^(FIRAuthDataResult *_Nullable authResult,
+                                         NSError *_Nullable error) {
     XCTAssertTrue([NSThread isMainThread]);
     XCTAssertNotNil(authResult.user);
     XCTAssertEqualObjects(authResult.user.refreshToken, kRefreshToken);
@@ -1083,10 +1050,10 @@ static const NSTimeInterval kWaitInterval = .5;
   FIRAuthCredential *emailCredential =
       [FIREmailAuthProvider credentialWithEmail:kEmail link:kFakeEmailSignInlink];
   [[FIRAuth auth] signInWithCredential:emailCredential
-                            completion:^(FIRUser *_Nullable user,
+                            completion:^(FIRAuthDataResult * _Nullable result,
                                          NSError *_Nullable error) {
     XCTAssertTrue([NSThread isMainThread]);
-    XCTAssertNil(user);
+    XCTAssertNil(result);
     XCTAssertEqual(error.code, FIRAuthErrorCodeUserDisabled);
     XCTAssertNotNil(error.userInfo[NSLocalizedDescriptionKey]);
     [expectation fulfill];
@@ -1120,49 +1087,10 @@ static const NSTimeInterval kWaitInterval = .5;
   FIRAuthCredential *emailCredential =
       [FIREmailAuthProvider credentialWithEmail:kEmail password:kFakePassword];
   [[FIRAuth auth] signInWithCredential:emailCredential
-                            completion:^(FIRUser *_Nullable user,
+                            completion:^(FIRAuthDataResult * _Nullable result,
                                          NSError *_Nullable error) {
     XCTAssertTrue([NSThread isMainThread]);
-    [self assertUser:user];
-    XCTAssertNil(error);
-    [expectation fulfill];
-  }];
-  [self waitForExpectationsWithTimeout:kExpectationTimeout handler:nil];
-  [self assertUser:[FIRAuth auth].currentUser];
-  OCMVerifyAll(_mockBackend);
-}
-
-/** @fn testSignInWithEmailCredentialSuccess
-    @brief Tests the flow of a successfully @c signInWithCredential:completion: call with an
-        email-password credential using the deprecated FIREmailPasswordAuthProvider.
- */
-- (void)testSignInWithEmailCredentialSuccessWithDepricatedProvider {
-  OCMExpect([_mockBackend verifyPassword:[OCMArg any] callback:[OCMArg any]])
-      .andCallBlock2(^(FIRVerifyPasswordRequest *_Nullable request,
-                       FIRVerifyPasswordResponseCallback callback) {
-    XCTAssertEqualObjects(request.APIKey, kAPIKey);
-    XCTAssertEqualObjects(request.email, kEmail);
-    XCTAssertEqualObjects(request.password, kFakePassword);
-    XCTAssertTrue(request.returnSecureToken);
-    dispatch_async(FIRAuthGlobalWorkQueue(), ^() {
-      id mockVeriyPasswordResponse = OCMClassMock([FIRVerifyPasswordResponse class]);
-      [self stubTokensWithMockResponse:mockVeriyPasswordResponse];
-      callback(mockVeriyPasswordResponse, nil);
-    });
-  });
-  [self expectGetAccountInfo];
-  XCTestExpectation *expectation = [self expectationWithDescription:@"callback"];
-  [[FIRAuth auth] signOut:NULL];
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-  FIRAuthCredential *emailCredential =
-      [FIREmailPasswordAuthProvider credentialWithEmail:kEmail password:kFakePassword];
-#pragma clang diagnostic pop
-  [[FIRAuth auth] signInWithCredential:emailCredential
-                            completion:^(FIRUser *_Nullable user,
-                                        NSError *_Nullable error) {
-    XCTAssertTrue([NSThread isMainThread]);
-    [self assertUser:user];
+    [self assertUser:result.user];
     XCTAssertNil(error);
     [expectation fulfill];
   }];
@@ -1183,10 +1111,10 @@ static const NSTimeInterval kWaitInterval = .5;
   FIRAuthCredential *emailCredential =
       [FIREmailAuthProvider credentialWithEmail:kEmail password:kFakePassword];
   [[FIRAuth auth] signInWithCredential:emailCredential
-                            completion:^(FIRUser *_Nullable user,
+                            completion:^(FIRAuthDataResult * _Nullable result,
                                          NSError *_Nullable error) {
     XCTAssertTrue([NSThread isMainThread]);
-    XCTAssertNil(user);
+    XCTAssertNil(result);
     XCTAssertEqual(error.code, FIRAuthErrorCodeUserDisabled);
     XCTAssertNotNil(error.userInfo[NSLocalizedDescriptionKey]);
     [expectation fulfill];
@@ -1209,12 +1137,98 @@ static const NSTimeInterval kWaitInterval = .5;
   FIRAuthCredential *emailCredential =
       [FIREmailAuthProvider credentialWithEmail:kEmail password:emptyString];
   [[FIRAuth auth] signInWithCredential:emailCredential
-                            completion:^(FIRUser *_Nullable user, NSError *_Nullable error) {
+                            completion:^(FIRAuthDataResult * _Nullable result,
+                                         NSError *_Nullable error) {
     XCTAssertTrue([NSThread isMainThread]);
     XCTAssertEqual(error.code, FIRAuthErrorCodeWrongPassword);
     [expectation fulfill];
   }];
   [self waitForExpectationsWithTimeout:kExpectationTimeout handler:nil];
+}
+
+#if TARGET_OS_IOS
+/** @fn testSignInWithProviderSuccess
+    @brief Tests a successful @c signInWithProvider:UIDelegate:completion: call with an OAuth
+        provider configured for Google.
+ */
+- (void)testSignInWithProviderSuccess {
+  OCMExpect([_mockBackend verifyAssertion:[OCMArg any] callback:[OCMArg any]])
+      .andCallBlock2(^(FIRVerifyAssertionRequest *_Nullable request,
+                       FIRVerifyAssertionResponseCallback callback) {
+    XCTAssertEqualObjects(request.APIKey, kAPIKey);
+    XCTAssertEqualObjects(request.providerID, FIRGoogleAuthProviderID);
+    XCTAssertTrue(request.returnSecureToken);
+    dispatch_async(FIRAuthGlobalWorkQueue(), ^() {
+      id mockVerifyAssertionResponse = OCMClassMock([FIRVerifyAssertionResponse class]);
+      OCMStub([mockVerifyAssertionResponse federatedID]).andReturn(kGoogleID);
+      OCMStub([mockVerifyAssertionResponse providerID]).andReturn(FIRGoogleAuthProviderID);
+      OCMStub([mockVerifyAssertionResponse localID]).andReturn(kLocalID);
+      OCMStub([mockVerifyAssertionResponse displayName]).andReturn(kGoogleDisplayName);
+      [self stubTokensWithMockResponse:mockVerifyAssertionResponse];
+      callback(mockVerifyAssertionResponse, nil);
+    });
+  });
+  [self expectGetAccountInfoGoogle];
+  XCTestExpectation *expectation = [self expectationWithDescription:@"callback"];
+  [[FIRAuth auth] signOut:NULL];
+  id mockProvider = OCMClassMock([FIROAuthProvider class]);
+  OCMExpect([mockProvider getCredentialWithUIDelegate:[OCMArg any] completion:[OCMArg any]])
+      .andCallBlock2(^(id<FIRAuthUIDelegate> delegate, FIRAuthCredentialCallback callback) {
+    dispatch_async(FIRAuthGlobalWorkQueue(), ^(){
+      FIROAuthCredential *credential =
+          [[FIROAuthCredential alloc] initWithProviderID:FIRGoogleAuthProviderID
+                                               sessionID:kOAuthSessionID
+                                  OAuthResponseURLString:kOAuthRequestURI];
+      callback(credential, nil);
+    });
+  });
+  [[FIRAuth auth] signInWithProvider:mockProvider
+                          UIDelegate:nil
+                          completion:^(FIRAuthDataResult *_Nullable authResult,
+                                       NSError *_Nullable error) {
+    XCTAssertTrue([NSThread isMainThread]);
+    [self assertUserGoogle:authResult.user];
+    XCTAssertNil(error);
+    [expectation fulfill];
+  }];
+  [self waitForExpectationsWithTimeout:kExpectationTimeout handler:nil];
+  OCMVerifyAll(_mockBackend);
+}
+
+/** @fn testSignInWithProviderFailure
+    @brief Tests a failed @c signInWithProvider:UIDelegate:completion: call with the error code
+        FIRAuthErrorCodeWebSignInUserInteractionFailure.
+ */
+- (void)testSignInWithProviderFailure {
+  OCMExpect([_mockBackend verifyAssertion:[OCMArg any] callback:[OCMArg any]])
+      .andDispatchError2([FIRAuthErrorUtils webSignInUserInteractionFailureWithReason:
+          kFakeWebSignInUserInteractionFailureReason]);
+  [[FIRAuth auth] signOut:NULL];
+  id mockProvider = OCMClassMock([FIROAuthProvider class]);
+  OCMExpect([mockProvider getCredentialWithUIDelegate:[OCMArg any] completion:[OCMArg any]])
+      .andCallBlock2(^(id<FIRAuthUIDelegate> delegate, FIRAuthCredentialCallback callback) {
+    dispatch_async(FIRAuthGlobalWorkQueue(), ^(){
+      FIROAuthCredential *credential =
+          [[FIROAuthCredential alloc] initWithProviderID:FIRGoogleAuthProviderID
+                                               sessionID:kOAuthSessionID
+                                  OAuthResponseURLString:kOAuthRequestURI];
+      callback(credential, nil);
+    });
+  });
+  XCTestExpectation *expectation = [self expectationWithDescription:@"callback"];
+  [[FIRAuth auth] signInWithProvider:mockProvider
+                          UIDelegate:nil
+                          completion:^(FIRAuthDataResult *_Nullable authResult,
+                                       NSError *_Nullable error) {
+    XCTAssertTrue([NSThread isMainThread]);
+    XCTAssertNil(authResult);
+    XCTAssertEqual(error.code, FIRAuthErrorCodeWebSignInUserInteractionFailure);
+    XCTAssertEqualObjects(error.userInfo[NSLocalizedFailureReasonErrorKey],
+                          kFakeWebSignInUserInteractionFailureReason);
+    [expectation fulfill];
+  }];
+  [self waitForExpectationsWithTimeout:kExpectationTimeout handler:nil];
+  OCMVerifyAll(_mockBackend);
 }
 
 /** @fn testSignInWithGoogleAccountExistsError
@@ -1244,7 +1258,7 @@ static const NSTimeInterval kWaitInterval = .5;
   FIRAuthCredential *googleCredential =
       [FIRGoogleAuthProvider credentialWithIDToken:kGoogleIDToken accessToken:kGoogleAccessToken];
   [[FIRAuth auth] signInWithCredential:googleCredential
-                            completion:^(FIRUser *_Nullable user,
+                            completion:^(FIRAuthDataResult * _Nullable result,
                                          NSError *_Nullable error) {
     XCTAssertTrue([NSThread isMainThread]);
     XCTAssertEqual(error.code, FIRAuthErrorCodeAccountExistsWithDifferentCredential);
@@ -1284,10 +1298,10 @@ static const NSTimeInterval kWaitInterval = .5;
   FIRAuthCredential *googleCredential =
       [FIRGoogleAuthProvider credentialWithIDToken:kGoogleIDToken accessToken:kGoogleAccessToken];
   [[FIRAuth auth] signInWithCredential:googleCredential
-                            completion:^(FIRUser *_Nullable user,
+                            completion:^(FIRAuthDataResult * _Nullable result,
                                          NSError *_Nullable error) {
     XCTAssertTrue([NSThread isMainThread]);
-    [self assertUserGoogle:user];
+    [self assertUserGoogle:result.user];
     XCTAssertNil(error);
     [expectation fulfill];
   }];
@@ -1295,6 +1309,65 @@ static const NSTimeInterval kWaitInterval = .5;
   [self assertUserGoogle:[FIRAuth auth].currentUser];
   OCMVerifyAll(_mockBackend);
 }
+
+/** @fn testSignInWithOAuthCredentialSuccess
+    @brief Tests the flow of a successful @c signInWithCredential:completion: call with a generic
+        OAuth credential (In this case, configured for the Google IDP).
+ */
+- (void)testSignInWithOAuthCredentialSuccess {
+  OCMExpect([_mockBackend verifyAssertion:[OCMArg any] callback:[OCMArg any]])
+      .andCallBlock2(^(FIRVerifyAssertionRequest *_Nullable request,
+                       FIRVerifyAssertionResponseCallback callback) {
+    XCTAssertEqualObjects(request.APIKey, kAPIKey);
+    XCTAssertEqualObjects(request.providerID, FIRGoogleAuthProviderID);
+    XCTAssertEqualObjects(request.requestURI, kOAuthRequestURI);
+    XCTAssertEqualObjects(request.sessionID, kOAuthSessionID);
+    XCTAssertTrue(request.returnSecureToken);
+    dispatch_async(FIRAuthGlobalWorkQueue(), ^() {
+      id mockVeriyAssertionResponse = OCMClassMock([FIRVerifyAssertionResponse class]);
+      OCMStub([mockVeriyAssertionResponse federatedID]).andReturn(kGoogleID);
+      OCMStub([mockVeriyAssertionResponse providerID]).andReturn(FIRGoogleAuthProviderID);
+      OCMStub([mockVeriyAssertionResponse localID]).andReturn(kLocalID);
+      OCMStub([mockVeriyAssertionResponse displayName]).andReturn(kGoogleDisplayName);
+      [self stubTokensWithMockResponse:mockVeriyAssertionResponse];
+      callback(mockVeriyAssertionResponse, nil);
+    });
+  });
+  [self expectGetAccountInfoGoogle];
+  XCTestExpectation *expectation = [self expectationWithDescription:@"callback"];
+  [[FIRAuth auth] signOut:NULL];
+  id mockProvider = OCMClassMock([FIROAuthProvider class]);
+  OCMExpect([mockProvider getCredentialWithUIDelegate:[OCMArg any] completion:[OCMArg any]])
+      .andCallBlock2(^(id<FIRAuthUIDelegate> delegate, FIRAuthCredentialCallback callback) {
+    dispatch_async(FIRAuthGlobalWorkQueue(), ^(){
+      FIROAuthCredential *credential =
+          [[FIROAuthCredential alloc] initWithProviderID:FIRGoogleAuthProviderID
+                                               sessionID:kOAuthSessionID
+                                  OAuthResponseURLString:kOAuthRequestURI];
+      callback(credential, nil);
+    });
+  });
+  [mockProvider getCredentialWithUIDelegate:nil
+                                 completion:^(FIRAuthCredential *_Nullable credential,
+                                              NSError *_Nullable error) {
+    XCTAssertTrue([credential isKindOfClass:[FIROAuthCredential class]]);
+    FIROAuthCredential *OAuthCredential = (FIROAuthCredential *)credential;
+    XCTAssertEqualObjects(OAuthCredential.OAuthResponseURLString, kOAuthRequestURI);
+    XCTAssertEqualObjects(OAuthCredential.sessionID, kOAuthSessionID);
+    [[FIRAuth auth] signInWithCredential:OAuthCredential
+                              completion:^(FIRAuthDataResult * _Nullable result,
+                                           NSError *_Nullable error) {
+      XCTAssertTrue([NSThread isMainThread]);
+      [self assertUserGoogle:result.user];
+      XCTAssertNil(error);
+      [expectation fulfill];
+    }];
+  }];
+  [self waitForExpectationsWithTimeout:kExpectationTimeout handler:nil];
+  [self assertUserGoogle:[FIRAuth auth].currentUser];
+  OCMVerifyAll(_mockBackend);
+}
+#endif  // TARGET_OS_IOS
 
 /** @fn testSignInAndRetrieveDataWithCredentialSuccess
     @brief Tests the flow of a successful @c signInAndRetrieveDataWithCredential:completion: call
@@ -1326,9 +1399,9 @@ static const NSTimeInterval kWaitInterval = .5;
   [[FIRAuth auth] signOut:NULL];
   FIRAuthCredential *googleCredential =
       [FIRGoogleAuthProvider credentialWithIDToken:kGoogleIDToken accessToken:kGoogleAccessToken];
-  [[FIRAuth auth] signInAndRetrieveDataWithCredential:googleCredential
-                                           completion:^(FIRAuthDataResult *_Nullable authResult,
-                                                        NSError *_Nullable error) {
+  [[FIRAuth auth] signInWithCredential:googleCredential
+                            completion:^(FIRAuthDataResult *_Nullable authResult,
+                                         NSError *_Nullable error) {
     XCTAssertTrue([NSThread isMainThread]);
     [self assertUserGoogle:authResult.user];
     XCTAssertEqualObjects(authResult.additionalUserInfo.profile, [[self class] googleProfile]);
@@ -1354,10 +1427,10 @@ static const NSTimeInterval kWaitInterval = .5;
   FIRAuthCredential *googleCredential =
       [FIRGoogleAuthProvider credentialWithIDToken:kGoogleIDToken accessToken:kGoogleAccessToken];
   [[FIRAuth auth] signInWithCredential:googleCredential
-                            completion:^(FIRUser *_Nullable user,
+                            completion:^(FIRAuthDataResult * _Nullable result,
                                          NSError *_Nullable error) {
     XCTAssertTrue([NSThread isMainThread]);
-    XCTAssertNil(user);
+    XCTAssertNil(result.user);
     XCTAssertEqual(error.code, FIRAuthErrorCodeEmailAlreadyInUse);
     XCTAssertNotNil(error.userInfo[NSLocalizedDescriptionKey]);
     [expectation fulfill];
@@ -1440,7 +1513,7 @@ static const NSTimeInterval kWaitInterval = .5;
   [self expectGetAccountInfoAnonymous];
   XCTestExpectation *expectation = [self expectationWithDescription:@"callback"];
   [[FIRAuth auth] signOut:NULL];
-  [[FIRAuth auth] signInAnonymouslyAndRetrieveDataWithCompletion:
+  [[FIRAuth auth] signInAnonymouslyWithCompletion:
       ^(FIRAuthDataResult *_Nullable result, NSError *_Nullable error) {
     XCTAssertTrue([NSThread isMainThread]);
     [self assertUserAnonymous:result.user];
@@ -1460,7 +1533,7 @@ static const NSTimeInterval kWaitInterval = .5;
       .andDispatchError2([FIRAuthErrorUtils operationNotAllowedErrorWithMessage:nil]);
   XCTestExpectation *expectation = [self expectationWithDescription:@"callback"];
   [[FIRAuth auth] signOut:NULL];
-  [[FIRAuth auth] signInAnonymouslyAndRetrieveDataWithCompletion:
+  [[FIRAuth auth] signInAnonymouslyWithCompletion:
       ^(FIRAuthDataResult *_Nullable result, NSError *_Nullable error) {
     XCTAssertTrue([NSThread isMainThread]);
     XCTAssertNil(result);
@@ -1545,9 +1618,9 @@ static const NSTimeInterval kWaitInterval = .5;
   [self expectGetAccountInfo];
   XCTestExpectation *expectation = [self expectationWithDescription:@"callback"];
   [[FIRAuth auth] signOut:NULL];
-  [[FIRAuth auth] signInAndRetrieveDataWithCustomToken:kCustomToken
-                                            completion:^(FIRAuthDataResult *_Nullable result,
-                                                         NSError *_Nullable error) {
+  [[FIRAuth auth] signInWithCustomToken:kCustomToken
+                             completion:^(FIRAuthDataResult *_Nullable result,
+                                          NSError *_Nullable error) {
     XCTAssertTrue([NSThread isMainThread]);
     [self assertUser:result.user];
     XCTAssertFalse(result.additionalUserInfo.isNewUser);
@@ -1567,9 +1640,9 @@ static const NSTimeInterval kWaitInterval = .5;
       .andDispatchError2([FIRAuthErrorUtils invalidCustomTokenErrorWithMessage:nil]);
   XCTestExpectation *expectation = [self expectationWithDescription:@"callback"];
   [[FIRAuth auth] signOut:NULL];
-  [[FIRAuth auth] signInAndRetrieveDataWithCustomToken:kCustomToken
-                                            completion:^(FIRAuthDataResult *_Nullable result,
-                                                         NSError *_Nullable error) {
+  [[FIRAuth auth] signInWithCustomToken:kCustomToken
+                             completion:^(FIRAuthDataResult *_Nullable result,
+                                          NSError *_Nullable error) {
     XCTAssertTrue([NSThread isMainThread]);
     XCTAssertNil(result);
     XCTAssertEqual(error.code, FIRAuthErrorCodeInvalidCustomToken);
@@ -1660,10 +1733,10 @@ static const NSTimeInterval kWaitInterval = .5;
   [self expectGetAccountInfo];
   XCTestExpectation *expectation = [self expectationWithDescription:@"callback"];
   [[FIRAuth auth] signOut:NULL];
-  [[FIRAuth auth] createUserAndRetrieveDataWithEmail:kEmail
-                                            password:kFakePassword
-                                          completion:^(FIRAuthDataResult *_Nullable result,
-                                                       NSError *_Nullable error) {
+  [[FIRAuth auth] createUserWithEmail:kEmail
+                             password:kFakePassword
+                           completion:^(FIRAuthDataResult *_Nullable result,
+                                        NSError *_Nullable error) {
     XCTAssertTrue([NSThread isMainThread]);
     [self assertUser:result.user];
     XCTAssertTrue(result.additionalUserInfo.isNewUser);
@@ -1685,10 +1758,10 @@ static const NSTimeInterval kWaitInterval = .5;
       .andDispatchError2([FIRAuthErrorUtils weakPasswordErrorWithServerResponseReason:reason]);
   XCTestExpectation *expectation = [self expectationWithDescription:@"callback"];
   [[FIRAuth auth] signOut:NULL];
-  [[FIRAuth auth] createUserAndRetrieveDataWithEmail:kEmail
-                                            password:kFakePassword
-                                          completion:^(FIRAuthDataResult *_Nullable result,
-                                                       NSError *_Nullable error) {
+  [[FIRAuth auth] createUserWithEmail:kEmail
+                             password:kFakePassword
+                           completion:^(FIRAuthDataResult *_Nullable result,
+                                        NSError *_Nullable error) {
     XCTAssertTrue([NSThread isMainThread]);
     XCTAssertNil(result);
     XCTAssertEqual(error.code, FIRAuthErrorCodeWeakPassword);
@@ -2230,6 +2303,90 @@ static const NSTimeInterval kWaitInterval = .5;
 }
 #endif
 
+#if TARGET_OS_IOS
+#pragma mark - Application Delegate tests
+- (void)testAppDidRegisterForRemoteNotifications_APNSTokenUpdated {
+  NSData *apnsToken = [NSData data];
+
+  OCMExpect([self.mockTokenManager setToken:[OCMArg checkWithBlock:^BOOL(FIRAuthAPNSToken *token) {
+    XCTAssertEqual(token.data, apnsToken);
+    XCTAssertEqual(token.type, FIRAuthAPNSTokenTypeUnknown);
+    return YES;
+  }]]);
+
+  [self.fakeApplicationDelegate application:self.mockApplication
+didRegisterForRemoteNotificationsWithDeviceToken:apnsToken];
+
+  [self.mockTokenManager verify];
+}
+
+- (void)testAppDidFailToRegisterForRemoteNotifications_TokenManagerCancels {
+  NSError *error = [NSError errorWithDomain:@"FIRAuthTests" code:-1 userInfo:nil];
+
+  OCMExpect([self.mockTokenManager cancelWithError:error]);
+
+  [self.fakeApplicationDelegate application:self.mockApplication
+didFailToRegisterForRemoteNotificationsWithError:error];
+
+  [self.mockTokenManager verify];
+}
+
+- (void)testAppDidReceiveRemoteNotification_NotificationManagerHandleCanNotification {
+  NSDictionary *notification = @{@"test" : @""};
+
+  OCMExpect([self.mockNotificationManager canHandleNotification:notification]);
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+  [self.fakeApplicationDelegate application:self.mockApplication
+               didReceiveRemoteNotification:notification];
+#pragma clang diagnostic pop
+
+  [self.mockNotificationManager verify];
+}
+
+- (void)testAppDidReceiveRemoteNotificationWithCompletion_NotificationManagerHandleCanNotification {
+  NSDictionary *notification = @{@"test" : @""};
+
+  OCMExpect([self.mockNotificationManager canHandleNotification:notification]);
+
+  [self.fakeApplicationDelegate application:self.mockApplication
+               didReceiveRemoteNotification:notification
+                     fetchCompletionHandler:^(UIBackgroundFetchResult result) {}];
+
+  [self.mockNotificationManager verify];
+}
+
+- (void)testAppOpenURL_AuthPresenterCanHandleURL {
+  NSURL *url = [NSURL URLWithString:@"https://localhost"];
+
+  [OCMExpect([self.mockAuthURLPresenter canHandleURL:url]) andReturnValue:@(YES)];
+
+  XCTAssertTrue([self.fakeApplicationDelegate application:self.mockApplication
+                                                  openURL:url
+                                                  options:@{}]);
+
+  [self.mockAuthURLPresenter verify];
+}
+
+- (void)testAppOpenURLWithSourceApplication_AuthPresenterCanHandleURL {
+  NSURL *url = [NSURL URLWithString:@"https://localhost"];
+
+  [OCMExpect([self.mockAuthURLPresenter canHandleURL:url]) andReturnValue:@(YES)];
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+  XCTAssertTrue([self.fakeApplicationDelegate application:self.mockApplication
+                                                  openURL:url
+                                                  sourceApplication:@""
+                                               annotation:[[NSObject alloc] init]]);
+#pragma clang diagnostic pop
+
+  [self.mockAuthURLPresenter verify];
+}
+
+#endif // TARGET_OS_IOS
+
 #pragma mark - Interoperability Tests
 
 /** @fn testComponentsBeingRegistered
@@ -2283,27 +2440,11 @@ static const NSTimeInterval kWaitInterval = .5;
  */
 - (void)enableAutoTokenRefresh {
   XCTestExpectation *expectation = [self expectationWithDescription:@"autoTokenRefreshcallback"];
-  [[FIRAuth auth].app getTokenForcingRefresh:NO withCallback:^(NSString *_Nullable token,
-                                                                NSError *_Nullable error) {
+  [[FIRAuth auth] getTokenForcingRefresh:NO withCallback:^(NSString *_Nullable token,
+                                                           NSError *_Nullable error) {
     [expectation fulfill];
   }];
   [self waitForExpectationsWithTimeout:kExpectationTimeout handler:nil];
-}
-
-/** @fn app1
-    @brief Creates a Firebase app.
-    @return A @c FIRApp with some name.
- */
-- (FIRApp *)app1 {
-  return [FIRApp appForAuthUnitTestsWithName:kFirebaseAppName1];
-}
-
-/** @fn app2
-    @brief Creates another Firebase app.
-    @return A @c FIRApp with some other name.
- */
-- (FIRApp *)app2 {
-  return [FIRApp appForAuthUnitTestsWithName:kFirebaseAppName2];
 }
 
 /** @fn stubSecureTokensWithMockResponse
@@ -2502,6 +2643,14 @@ static const NSTimeInterval kWaitInterval = .5;
     [expectation fulfill];
   });
   [self waitForExpectationsWithTimeout:timeInterval + kExpectationTimeout handler:nil];
+}
+
+- (void)waitForAuthGlobalWorkQueueDrain {
+  dispatch_semaphore_t workerSemaphore = dispatch_semaphore_create(0);
+  dispatch_async(FIRAuthGlobalWorkQueue(), ^{
+    dispatch_semaphore_signal(workerSemaphore);
+  });
+  dispatch_semaphore_wait(workerSemaphore, DISPATCH_TIME_FOREVER /*DISPATCH_TIME_NOW + 10 * NSEC_PER_SEC*/);
 }
 
 @end

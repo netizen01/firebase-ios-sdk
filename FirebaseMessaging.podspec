@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name             = 'FirebaseMessaging'
-  s.version          = '3.2.1'
+  s.version          = '4.0.0'
   s.summary          = 'Firebase Messaging for iOS'
 
   s.description      = <<-DESC
@@ -20,6 +20,7 @@ device, and it is completely free.
   }
   s.social_media_url = 'https://twitter.com/Firebase'
   s.ios.deployment_target = '8.0'
+  s.tvos.deployment_target = '10.0'
 
   s.cocoapods_version = '>= 1.4.0'
   s.static_framework = true
@@ -37,10 +38,13 @@ device, and it is completely free.
       'FIRMessaging_LIB_VERSION=' + String(s.version)
   }
   s.framework = 'SystemConfiguration'
+  s.weak_framework = 'UserNotifications'
   s.dependency 'FirebaseAnalyticsInterop', '~> 1.1'
-  s.dependency 'FirebaseCore', '~> 5.1'
-  s.dependency 'FirebaseInstanceID', '~> 3.0'
-  s.dependency 'GoogleUtilities/Reachability', '~> 5.2'
-  s.dependency 'GoogleUtilities/Environment', '~> 5.2'
+  s.dependency 'FirebaseCore', '~> 6.0'
+  s.dependency 'FirebaseInstanceID', '~> 4.1'
+  s.dependency 'GoogleUtilities/AppDelegateSwizzler', '~> 6.0'
+  s.dependency 'GoogleUtilities/Reachability', '~> 6.0'
+  s.dependency 'GoogleUtilities/Environment', '~> 6.0'
+  s.dependency 'GoogleUtilities/UserDefaults', '~> 6.0'
   s.dependency 'Protobuf', '~> 3.1'
 end

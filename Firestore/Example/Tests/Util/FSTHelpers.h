@@ -17,64 +17,57 @@
 #import <Foundation/Foundation.h>
 
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #import "Firestore/Source/Model/FSTDocument.h"
-#import "Firestore/Source/Model/FSTDocumentDictionary.h"
-#import "Firestore/Source/Remote/FSTRemoteEvent.h"
 
+#include "Firestore/core/src/firebase/firestore/core/view_snapshot.h"
+#include "Firestore/core/src/firebase/firestore/model/document_map.h"
+#include "Firestore/core/src/firebase/firestore/model/document_set.h"
 #include "Firestore/core/src/firebase/firestore/model/field_path.h"
 #include "Firestore/core/src/firebase/firestore/model/field_value.h"
 #include "Firestore/core/src/firebase/firestore/model/resource_path.h"
 #include "Firestore/core/src/firebase/firestore/model/types.h"
+#include "Firestore/core/src/firebase/firestore/remote/remote_event.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/optional.h"
 
 @class FIRGeoPoint;
 @class FSTDeleteMutation;
 @class FSTDeletedDocument;
 @class FSTDocument;
 @class FSTDocumentKeyReference;
-@class FSTDocumentSet;
 @class FSTFieldValue;
 @class FSTFilter;
 @class FSTLocalViewChanges;
 @class FSTPatchMutation;
 @class FSTQuery;
-@class FSTRemoteEvent;
 @class FSTSetMutation;
 @class FSTSortOrder;
-@class FSTTargetChange;
 @class FIRTimestamp;
 @class FSTTransformMutation;
 @class FSTView;
-@class FSTViewSnapshot;
 @class FSTObjectValue;
 
-NS_ASSUME_NONNULL_BEGIN
+namespace firebase {
+namespace firestore {
+namespace remote {
 
-#if __cplusplus
-extern "C" {
-#endif
+class RemoteEvent;
+
+}  // namespace remote
+}  // namespace firestore
+}  // namespace firebase
+
+namespace model = firebase::firestore::model;
+
+NS_ASSUME_NONNULL_BEGIN
 
 #define FSTAssertIsKindOfClass(value, classType)             \
   do {                                                       \
     XCTAssertEqualObjects([value class], [classType class]); \
   } while (0);
-
-/**
- * Asserts that the given NSSet of FSTDocumentKeys contains exactly the given expected keys.
- * This is a macro instead of a method so that the failure shows up on the right line.
- *
- * @param actualSet An NSSet of FSTDocumentKeys.
- * @param expectedArray A sorted array of keys that actualSet must be equal to (after converting
- *     to an array and sorting).
- */
-#define FSTAssertEqualSets(actualSet, expectedArray)                \
-  do {                                                              \
-    NSArray<FSTDocumentKey *> *actual = [(actualSet)allObjects];    \
-    actual = [actual sortedArrayUsingSelector:@selector(compare:)]; \
-    XCTAssertEqualObjects(actual, (expectedArray));                 \
-  } while (0)
 
 /**
  * Takes an array of "equality group" arrays and asserts that the compare: selector returns the
@@ -91,9 +84,9 @@ extern "C" {
             NSComparisonResult result = [left compare:right];                                      \
             NSComparisonResult inverseResult = [right compare:left];                               \
             XCTAssertEqual(result, expected, @"comparing %@ with %@ at (%lu, %lu)", left, right,   \
-                           i, j);                                                                  \
+                           (unsigned long)i, (unsigned long)j);                                    \
             XCTAssertEqual(inverseResult, -expected, @"comparing %@ with %@ at (%lu, %lu)", right, \
-                           left, j, i);                                                            \
+                           left, (unsigned long)j, (unsigned long)i);                              \
           }                                                                                        \
         }                                                                                          \
       }                                                                                            \
@@ -150,45 +143,67 @@ inline NSString *FSTRemoveExceptionPrefix(NSString *exception) {
     XCTAssertTrue(didThrow, ##__VA_ARGS__);                             \
   } while (0)
 
+// Helper to compare vectors containing Objective-C objects.
+#define FSTAssertEqualVectors(v1, v2)                                \
+  do {                                                               \
+    XCTAssertEqual(v1.size(), v2.size(), @"Vector length mismatch"); \
+    for (size_t i = 0; i < v1.size(); i++) {                         \
+      XCTAssertEqualObjects(v1[i], v2[i]);                           \
+    }                                                                \
+  } while (0)
+
 /**
- * An implementation of FSTTargetMetadataProvider that provides controlled access to the
- * `FSTTargetMetadataProvider` callbacks. Any target accessed via these callbacks must be
+ * An implementation of `TargetMetadataProvider` that provides controlled access to the
+ * `TargetMetadataProvider` callbacks. Any target accessed via these callbacks must be
  * registered beforehand via the factory methods or via `setSyncedKeys:forQueryData:`.
  */
-@interface FSTTestTargetMetadataProvider : NSObject <FSTTargetMetadataProvider>
+namespace firebase {
+namespace firestore {
+namespace remote {
 
-/**
- * Creates an FSTTestTargetMetadataProvider that behaves as if there's an established listen for
- * each of the given targets, where each target has previously seen query results containing just
- * the given documentKey.
- *
- * Internally this means that the `remoteKeysForTarget` callback for these targets will return just
- * the documentKey and that the provided targets will be returned as active from the
- * `queryDataForTarget` target.
- */
-+ (instancetype)providerWithSingleResultForKey:(firebase::firestore::model::DocumentKey)documentKey
-                                       targets:(NSArray<FSTBoxedTargetID *> *)targets;
+class TestTargetMetadataProvider : public TargetMetadataProvider {
+ public:
+  /**
+   * Creates a `TestTargetMetadataProvider` that behaves as if there's an established listen for
+   * each of the given targets, where each target has previously seen query results containing just
+   * the given `document_key`.
+   *
+   * Internally this means that the `GetRemoteKeysForTarget` callback for these targets will return
+   * just the `document_key` and that the provided targets will be returned as active from the
+   * `GetQueryDataForTarget` target.
+   */
+  static TestTargetMetadataProvider CreateSingleResultProvider(
+      model::DocumentKey document_key, const std::vector<model::TargetId> &targets);
+  static TestTargetMetadataProvider CreateSingleResultProvider(
+      model::DocumentKey document_key,
+      const std::vector<model::TargetId> &targets,
+      const std::vector<model::TargetId> &limbo_targets);
 
-+ (instancetype)providerWithSingleResultForKey:(firebase::firestore::model::DocumentKey)documentKey
-                                 listenTargets:(NSArray<FSTBoxedTargetID *> *)listenTargets
-                                  limboTargets:(NSArray<FSTBoxedTargetID *> *)limboTargets;
+  /**
+   * Creates an `TestTargetMetadataProvider` that behaves as if there's an established listen for
+   * each of the given targets, where each target has not seen any previous document.
+   *
+   * Internally this means that the `GetRemoteKeysForTarget` callback for these targets will return
+   * an empty set of document keys and that the provided targets will be returned as active from the
+   * `GetQueryDataForTarget` target.
+   */
+  static TestTargetMetadataProvider CreateEmptyResultProvider(
+      const model::DocumentKey &document_key, const std::vector<model::TargetId> &targets);
 
-/**
- * Creates an FSTTestTargetMetadataProvider that behaves as if there's an established listen for
- * each of the given targets, where each target has not seen any previous document.
- *
- * Internally this means that the `remoteKeysForTarget` callback for these targets will return an
- * empty set of document keys and that the provided targets will be returned as active from the
- * `queryDataForTarget` target.
- */
-+ (instancetype)providerWithEmptyResultForKey:(firebase::firestore::model::DocumentKey)documentKey
-                                      targets:(NSArray<FSTBoxedTargetID *> *)targets;
+  /** Sets or replaces the local state for the provided query data. */
+  void SetSyncedKeys(model::DocumentKeySet keys, FSTQueryData *query_data);
 
-/** Sets or replaces the local state for the provided query data. */
-- (void)setSyncedKeys:(firebase::firestore::model::DocumentKeySet)keys
-         forQueryData:(FSTQueryData *)queryData;
+  model::DocumentKeySet GetRemoteKeysForTarget(model::TargetId target_id) const override;
+  FSTQueryData *GetQueryDataForTarget(model::TargetId target_id) const override;
 
-@end
+ private:
+  std::unordered_map<model::TargetId, model::DocumentKeySet> synced_keys_;
+  std::unordered_map<model::TargetId, FSTQueryData *> query_data_;
+};
+
+}  // namespace remote
+}  // namespace firestore
+}  // namespace firebase
 
 /** Creates a new FIRTimestamp from components. Note that year, month, and day are all one-based. */
 FIRTimestamp *FSTTestTimestamp(int year, int month, int day, int hour, int minute, int second);
@@ -220,7 +235,7 @@ FSTFieldValue *FSTTestFieldValue(id _Nullable value);
 FSTObjectValue *FSTTestObjectValue(NSDictionary<NSString *, id> *data);
 
 /** A convenience method for creating document keys for tests. */
-FSTDocumentKey *FSTTestDocKey(NSString *path);
+firebase::firestore::model::DocumentKey FSTTestDocKey(NSString *path);
 
 /** Allow tests to just use an int literal for versions. */
 typedef int64_t FSTTestSnapshotVersion;
@@ -259,18 +274,19 @@ FSTSortOrder *FSTTestOrderBy(const absl::string_view field, NSString *direction)
  * Creates an NSComparator that will compare FSTDocuments by the given fieldPath string then by
  * key.
  */
-NSComparator FSTTestDocComparator(const absl::string_view fieldPath);
+model::DocumentComparator FSTTestDocComparator(const absl::string_view fieldPath);
 
 /**
- * Creates a FSTDocumentSet based on the given comparator, initially containing the given
+ * Creates a DocumentSet based on the given comparator, initially containing the given
  * documents.
  */
-FSTDocumentSet *FSTTestDocSet(NSComparator comp, NSArray<FSTDocument *> *docs);
+model::DocumentSet FSTTestDocSet(model::DocumentComparator comp, NSArray<FSTDocument *> *docs);
 
 /** Computes changes to the view with the docs and then applies them and returns the snapshot. */
-FSTViewSnapshot *_Nullable FSTTestApplyChanges(FSTView *view,
-                                               NSArray<FSTMaybeDocument *> *docs,
-                                               FSTTargetChange *_Nullable targetChange);
+absl::optional<firebase::firestore::core::ViewSnapshot> FSTTestApplyChanges(
+    FSTView *view,
+    NSArray<FSTMaybeDocument *> *docs,
+    const absl::optional<firebase::firestore::remote::TargetChange> &targetChange);
 
 /** Creates a set mutation for the document key at the given path. */
 FSTSetMutation *FSTTestSetMutation(NSString *path, NSDictionary<NSString *, id> *values);
@@ -292,21 +308,24 @@ FSTTransformMutation *FSTTestTransformMutation(NSString *path, NSDictionary<NSSt
 FSTDeleteMutation *FSTTestDeleteMutation(NSString *path);
 
 /** Converts a list of documents to a sorted map. */
-FSTMaybeDocumentDictionary *FSTTestDocUpdates(NSArray<FSTMaybeDocument *> *docs);
+firebase::firestore::model::MaybeDocumentMap FSTTestDocUpdates(NSArray<FSTMaybeDocument *> *docs);
 
 /** Creates a remote event that inserts a new document. */
-FSTRemoteEvent *FSTTestAddedRemoteEvent(FSTMaybeDocument *doc, NSArray<NSNumber *> *addedToTargets);
+firebase::firestore::remote::RemoteEvent FSTTestAddedRemoteEvent(
+    FSTMaybeDocument *doc, const std::vector<firebase::firestore::model::TargetId> &addedToTargets);
 
 /** Creates a remote event with changes to a document. */
-FSTRemoteEvent *FSTTestUpdateRemoteEvent(FSTMaybeDocument *doc,
-                                         NSArray<NSNumber *> *updatedInTargets,
-                                         NSArray<NSNumber *> *removedFromTargets);
+firebase::firestore::remote::RemoteEvent FSTTestUpdateRemoteEvent(
+    FSTMaybeDocument *doc,
+    const std::vector<firebase::firestore::model::TargetId> &updatedInTargets,
+    const std::vector<firebase::firestore::model::TargetId> &removedFromTargets);
 
 /** Creates a remote event with changes to a document. Allows for identifying limbo targets */
-FSTRemoteEvent *FSTTestUpdateRemoteEventWithLimboTargets(FSTMaybeDocument *doc,
-                                                         NSArray<NSNumber *> *updatedInTargets,
-                                                         NSArray<NSNumber *> *removedFromTargets,
-                                                         NSArray<NSNumber *> *limboTargets);
+firebase::firestore::remote::RemoteEvent FSTTestUpdateRemoteEventWithLimboTargets(
+    FSTMaybeDocument *doc,
+    const std::vector<firebase::firestore::model::TargetId> &updatedInTargets,
+    const std::vector<firebase::firestore::model::TargetId> &removedFromTargets,
+    const std::vector<firebase::firestore::model::TargetId> &limboTargets);
 
 /** Creates a test view changes. */
 FSTLocalViewChanges *FSTTestViewChanges(firebase::firestore::model::TargetId targetID,
@@ -314,23 +333,13 @@ FSTLocalViewChanges *FSTTestViewChanges(firebase::firestore::model::TargetId tar
                                         NSArray<NSString *> *removedKeys);
 
 /** Creates a test target change that acks all 'docs' and  marks the target as CURRENT  */
-FSTTargetChange *FSTTestTargetChangeAckDocuments(firebase::firestore::model::DocumentKeySet docs);
+firebase::firestore::remote::TargetChange FSTTestTargetChangeAckDocuments(
+    firebase::firestore::model::DocumentKeySet docs);
 
 /** Creates a test target change that marks the target as CURRENT  */
-FSTTargetChange *FSTTestTargetChangeMarkCurrent();
-
-/** Creates a test target change. */
-FSTTargetChange *FSTTestTargetChange(firebase::firestore::model::DocumentKeySet added,
-                                     firebase::firestore::model::DocumentKeySet modified,
-                                     firebase::firestore::model::DocumentKeySet removed,
-                                     NSData *resumeToken,
-                                     BOOL current);
+firebase::firestore::remote::TargetChange FSTTestTargetChangeMarkCurrent();
 
 /** Creates a resume token to match the given snapshot version. */
 NSData *_Nullable FSTTestResumeTokenFromSnapshotVersion(FSTTestSnapshotVersion watchSnapshot);
-
-#if __cplusplus
-}  // extern "C"
-#endif
 
 NS_ASSUME_NONNULL_END

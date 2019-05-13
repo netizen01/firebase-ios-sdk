@@ -19,13 +19,17 @@ cc_library(
     nanopb_string.h
     reader.h
     reader.cc
-    tag.h
     writer.h
     writer.cc
   DEPENDS
     # TODO(b/111328563) Force nanopb first to work around ODR violations
-    protobuf-nanopb
+    protobuf-nanopb-static
 
     firebase_firestore_util
     firebase_firestore_protos_nanopb
+)
+
+target_compile_definitions(
+  firebase_firestore_nanopb
+  PUBLIC -DPB_ENABLE_MALLOC
 )

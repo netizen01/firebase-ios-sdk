@@ -47,12 +47,12 @@ cc_select(
 # into the binary by converting it to a char array.
 add_custom_command(
     OUTPUT grpc_root_certificates_generated.h grpc_root_certificates_generated.cc
-    COMMAND ${FIREBASE_SOURCE_DIR}/scripts/binary_to_array.py
+    COMMAND python ${FIREBASE_SOURCE_DIR}/scripts/binary_to_array.py
         --output_header=grpc_root_certificates_generated.h
         --output_source=grpc_root_certificates_generated.cc
         --cpp_namespace=firebase::firestore::remote
-        --array=grpc_root_certificates
-        --array_size=grpc_root_certificates_size
+        --array=grpc_root_certificates_generated_data
+        --array_size=grpc_root_certificates_generated_size
         ${FIREBASE_EXTERNAL_SOURCE_DIR}/grpc/etc/roots.pem
     DEPENDS
     ${FIREBASE_EXTERNAL_SOURCE_DIR}/grpc/etc/roots.pem
@@ -100,7 +100,7 @@ cc_library(
 
   DEPENDS
     # TODO(b/111328563) Force nanopb first to work around ODR violations
-    protobuf-nanopb
+    protobuf-nanopb-static
 
     firebase_firestore_model
     firebase_firestore_nanopb

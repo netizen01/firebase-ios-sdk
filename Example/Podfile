@@ -1,6 +1,10 @@
-# Uncomment the next two lines for pre-release testing
+# Uncomment the next two lines for pre-release testing on internal repo
 #source 'sso://cpdc-internal/firebase'
 #source 'https://github.com/CocoaPods/Specs.git'
+
+# Uncomment the next two lines for pre-release testing on public repo
+source 'https://github.com/Firebase/SpecsStaging.git'
+source 'https://github.com/CocoaPods/Specs.git'
 
 use_frameworks!
 
@@ -13,9 +17,9 @@ target 'Core_Example_iOS' do
   platform :ios, '8.0'
 
   # The next line is the forcing function for the Firebase pod. The Firebase
-  # version's subspecs should depend on the component versions in their
-  # corresponding podspec's.
-  pod 'Firebase/CoreOnly', '5.13.0'
+  # version's subspecs should depend on the component versions in the
+  # corresponding podspec's in this repo.
+  pod 'Firebase/CoreOnly', '6.0.0'
 
   target 'Core_Tests_iOS' do
     inherit! :search_paths
@@ -58,17 +62,6 @@ target 'DynamicLinks_Example_iOS' do
     pod 'OCMock'
     pod 'GoogleUtilities/MethodSwizzler', :path => '../'
     pod 'GoogleUtilities/SwizzlerTestHelpers', :path => '../'
-
-    # Set define to turn on the unswizzler for the unit tests
-    post_install do |installer_representation|
-      installer_representation.pods_project.targets.each do |target|
-          target.build_configurations.each do |config|
-              if config.name != 'Release'
-                  config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= ['$(inherited)', 'GUL_UNSWIZZLING_ENABLED=1']
-              end
-          end
-      end
-    end
   end
 end
 
@@ -83,6 +76,17 @@ target 'FDLBuilderTestAppObjC' do
   end
 end
 
+target 'InstanceID_Example_iOS' do
+  platform :ios, '8.0'
+
+  pod 'FirebaseInstanceID' , :path => '../'
+
+  target 'InstanceID_Tests_iOS' do
+    inherit! :search_paths
+    pod 'OCMock'
+  end
+end
+
 target 'Messaging_Example_iOS' do
   platform :ios, '8.0'
 
@@ -92,6 +96,12 @@ target 'Messaging_Example_iOS' do
     inherit! :search_paths
     pod 'OCMock'
   end
+end
+
+target 'Messaging_NotificationService_iOS' do
+  platform :ios, '8.0'
+
+  pod 'FirebaseMessaging' , :path => '../'
 end
 
 target 'Messaging_Sample_iOS' do
@@ -120,29 +130,21 @@ target 'Auth_Sample' do
   pod 'FirebaseCore', :path => '../'
   pod 'FBSDKLoginKit'
   pod 'GoogleSignIn'
-  pod 'FirebaseInstanceID'
+  pod 'FirebaseInstanceID', :path => '../'
   pod 'GTMSessionFetcher/Core'
 
   target 'Auth_ApiTests' do
     inherit! :search_paths
   end
 
-  target 'Auth_EarlGreyTests' do
+  target 'Auth_E2eTests' do
     inherit! :search_paths
     pod 'EarlGrey'
   end
 end
 
-target 'Auth_SwiftSample' do
-  platform :ios, '8.0'
-  pod 'FirebaseAuth', :path => '../'
-  pod 'FirebaseCore', :path => '../'
-  pod 'GoogleSignIn'
-  pod 'FirebaseInstanceID'
-end
-
 target 'Core_Example_macOS' do
-  platform :osx, '10.10'
+  platform :osx, '10.11'
 
   pod 'FirebaseCore', :path => '../'
 
@@ -153,7 +155,7 @@ target 'Core_Example_macOS' do
 end
 
 target 'Auth_Example_macOS' do
-  platform :osx, '10.10'
+  platform :osx, '10.11'
 
   pod 'FirebaseAuth', :path => '../'
 
@@ -164,7 +166,7 @@ target 'Auth_Example_macOS' do
 end
 
 target 'Database_Example_macOS' do
-  platform :osx, '10.10'
+  platform :osx, '10.11'
 
   pod 'FirebaseDatabase', :path => '../'
 
@@ -178,7 +180,7 @@ target 'Database_Example_macOS' do
 end
 
 target 'Storage_Example_macOS' do
-  platform :osx, '10.10'
+  platform :osx, '10.11'
 
   pod 'FirebaseStorage', :path => '../'
 
@@ -242,3 +244,37 @@ target 'Storage_Example_tvOS' do
 #    inherit! :search_paths
 #  end
 end
+
+target 'Messaging_Example_tvOS' do
+  platform :tvos, '10.0'
+
+  pod 'FirebaseMessaging', :path => '../'
+
+  target 'Messaging_Tests_tvOS' do
+    inherit! :search_paths
+    pod 'OCMock'
+  end
+end
+
+target 'InstanceID_Example_tvOS' do
+  platform :tvos, '10.0'
+
+  pod 'FirebaseInstanceID', :path => '../'
+
+  target 'InstanceID_Tests_tvOS' do
+    inherit! :search_paths
+    pod 'OCMock'
+  end
+end
+
+# Set define to turn on GUL_UNSWIZZLING and GUL_APP_DELEGATE_TESTING for the unit tests
+post_install do |installer_representation|
+  installer_representation.pods_project.targets.each do |target|
+      target.build_configurations.each do |config|
+          if config.name != 'Release'
+              config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= ['$(inherited)', 'GUL_UNSWIZZLING_ENABLED=1', 'GUL_APP_DELEGATE_TESTING=1']
+          end
+      end
+  end
+end
+

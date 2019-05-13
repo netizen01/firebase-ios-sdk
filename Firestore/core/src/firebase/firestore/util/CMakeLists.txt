@@ -241,10 +241,13 @@ cc_library(
   SOURCES
     bits.cc
     bits.h
-    comparator_holder.h
     comparison.cc
     comparison.h
+    compressed_member.h
     config.h
+    delayed_constructor.h
+    error_apple.h
+    error_apple.mm
     hashing.h
     iterator_adaptors.h
     ordered_code.cc
@@ -252,7 +255,9 @@ cc_library(
     range.h
     string_util.cc
     string_util.h
+    to_string.h
     type_traits.h
+    warnings.h
   DEPENDS
     absl_base
     firebase_firestore_util_async

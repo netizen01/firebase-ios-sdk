@@ -22,6 +22,7 @@ cc_library(
     document.h
     document_key.cc
     document_key.h
+    document_map.h
     field_mask.h
     field_path.cc
     field_path.h
@@ -32,6 +33,8 @@ cc_library(
     maybe_document.h
     mutation.cc
     mutation.h
+    mutation_batch.cc
+    mutation_batch.h
     no_document.cc
     no_document.h
     precondition.cc
@@ -42,9 +45,13 @@ cc_library(
     snapshot_version.h
     transform_operations.h
     types.h
+    unknown_document.cc
+    unknown_document.h
   DEPENDS
     absl_optional
     absl_strings
+    firebase_firestore_api_input_validation
+    firebase_firestore_immutable
     firebase_firestore_util
     firebase_firestore_types
 )

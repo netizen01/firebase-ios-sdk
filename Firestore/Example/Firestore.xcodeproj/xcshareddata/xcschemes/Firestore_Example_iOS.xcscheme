@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Scheme
-   LastUpgradeVersion = "0720"
+   LastUpgradeVersion = "1010"
    version = "1.3">
    <BuildAction
       parallelizeBuildables = "YES"
@@ -45,6 +45,16 @@
                BlueprintIdentifier = "DE03B2941F2149D600A30B9C"
                BuildableName = "Firestore_IntegrationTests_iOS.xctest"
                BlueprintName = "Firestore_IntegrationTests_iOS"
+               ReferencedContainer = "container:Firestore.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "5CAE131820FFFED600BE9A4A"
+               BuildableName = "Firestore_Benchmarks_iOS.xctest"
+               BlueprintName = "Firestore_Benchmarks_iOS"
                ReferencedContainer = "container:Firestore.xcodeproj">
             </BuildableReference>
          </TestableReference>

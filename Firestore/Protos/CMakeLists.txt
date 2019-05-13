@@ -25,11 +25,11 @@ set(
   firestore/local/target
   google/api/annotations
   google/api/http
-  google/firestore/v1beta1/common
-  google/firestore/v1beta1/document
-  google/firestore/v1beta1/firestore
-  google/firestore/v1beta1/query
-  google/firestore/v1beta1/write
+  google/firestore/v1/common
+  google/firestore/v1/document
+  google/firestore/v1/firestore
+  google/firestore/v1/query
+  google/firestore/v1/write
   google/rpc/status
   google/type/latlng
 )
@@ -113,8 +113,8 @@ endfunction()
 # omitted here.
 set(
   PROTOBUF_OBJC_GENERATED_SOURCES
-  ${OUTPUT_DIR}/objc/google/firestore/v1beta1/Firestore.pbrpc.h
-  ${OUTPUT_DIR}/objc/google/firestore/v1beta1/Firestore.pbrpc.m
+  ${OUTPUT_DIR}/objc/google/firestore/v1/Firestore.pbrpc.h
+  ${OUTPUT_DIR}/objc/google/firestore/v1/Firestore.pbrpc.m
 )
 foreach(root ${PROTO_FILE_ROOTS})
   get_filename_component(dir ${root} DIRECTORY)
@@ -144,7 +144,7 @@ cc_library(
   SOURCES
     ${NANOPB_GENERATED_SOURCES}
   DEPENDS
-    protobuf-nanopb
+    protobuf-nanopb-static
 )
 
 target_include_directories(

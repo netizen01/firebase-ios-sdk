@@ -16,6 +16,7 @@
 
 #import <XCTest/XCTest.h>
 
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -23,11 +24,10 @@
 #import "Firestore/Protos/objc/firestore/local/Mutation.pbobjc.h"
 #import "Firestore/Protos/objc/firestore/local/Target.pbobjc.h"
 #import "Firestore/Source/Local/FSTLevelDB.h"
-#import "Firestore/Source/Local/FSTLevelDBMutationQueue.h"
-#import "Firestore/Source/Local/FSTLevelDBQueryCache.h"
 
 #include "Firestore/core/src/firebase/firestore/local/leveldb_key.h"
 #include "Firestore/core/src/firebase/firestore/local/leveldb_migrations.h"
+#include "Firestore/core/src/firebase/firestore/local/leveldb_query_cache.h"
 #include "Firestore/core/src/firebase/firestore/util/ordered_code.h"
 #include "Firestore/core/test/firebase/firestore/testutil/testutil.h"
 #include "absl/strings/match.h"
@@ -38,11 +38,13 @@
 NS_ASSUME_NONNULL_BEGIN
 
 using firebase::firestore::FirestoreErrorCode;
+using firebase::firestore::local::LevelDbCollectionParentKey;
 using firebase::firestore::local::LevelDbDocumentMutationKey;
 using firebase::firestore::local::LevelDbDocumentTargetKey;
 using firebase::firestore::local::LevelDbMigrations;
 using firebase::firestore::local::LevelDbMutationKey;
 using firebase::firestore::local::LevelDbMutationQueueKey;
+using firebase::firestore::local::LevelDbQueryCache;
 using firebase::firestore::local::LevelDbQueryTargetKey;
 using firebase::firestore::local::LevelDbRemoteDocumentKey;
 using firebase::firestore::local::LevelDbTargetDocumentKey;
@@ -86,29 +88,23 @@ using SchemaVersion = LevelDbMigrations::SchemaVersion;
 }
 
 - (void)testAddsTargetGlobal {
-  FSTPBTargetGlobal *metadata = [FSTLevelDBQueryCache readTargetMetadataFromDB:_db.get()];
+  FSTPBTargetGlobal *metadata = LevelDbQueryCache::ReadMetadata(_db.get());
   XCTAssertNil(metadata, @"Not expecting metadata yet, we should have an empty db");
   LevelDbMigrations::RunMigrations(_db.get());
 
-  metadata = [FSTLevelDBQueryCache readTargetMetadataFromDB:_db.get()];
+  metadata = LevelDbQueryCache::ReadMetadata(_db.get());
   XCTAssertNotNil(metadata, @"Migrations should have added the metadata");
 }
 
 - (void)testSetsVersionNumber {
-  {
-    LevelDbTransaction transaction(_db.get(), "testSetsVersionNumber before");
-    SchemaVersion initial = LevelDbMigrations::ReadSchemaVersion(&transaction);
-    XCTAssertEqual(0, initial, "No version should be equivalent to 0");
-  }
+  SchemaVersion initial = LevelDbMigrations::ReadSchemaVersion(_db.get());
+  XCTAssertEqual(0, initial, "No version should be equivalent to 0");
 
-  {
-    // Pick an arbitrary high migration number and migrate to it.
-    LevelDbMigrations::RunMigrations(_db.get());
+  // Pick an arbitrary high migration number and migrate to it.
+  LevelDbMigrations::RunMigrations(_db.get());
 
-    LevelDbTransaction transaction(_db.get(), "testSetsVersionNumber after");
-    SchemaVersion actual = LevelDbMigrations::ReadSchemaVersion(&transaction);
-    XCTAssertGreaterThan(actual, 0, @"Expected to migrate to a schema version > 0");
-  }
+  SchemaVersion actual = LevelDbMigrations::ReadSchemaVersion(_db.get());
+  XCTAssertGreaterThan(actual, 0, @"Expected to migrate to a schema version > 0");
 }
 
 #define ASSERT_NOT_FOUND(transaction, key)                \
@@ -130,8 +126,8 @@ using SchemaVersion = LevelDbMigrations::SchemaVersion;
   BatchId batchID = 1;
   TargetId targetID = 2;
 
-  FSTDocumentKey *key1 = Key("documents/1");
-  FSTDocumentKey *key2 = Key("documents/2");
+  DocumentKey key1 = Key("documents/1");
+  DocumentKey key2 = Key("documents/2");
 
   std::string targetKeys[] = {
       LevelDbTargetKey::Key(targetID),
@@ -172,7 +168,7 @@ using SchemaVersion = LevelDbMigrations::SchemaVersion;
       ASSERT_FOUND(transaction, key);
     }
 
-    FSTPBTargetGlobal *metadata = [FSTLevelDBQueryCache readTargetMetadataFromDB:_db.get()];
+    FSTPBTargetGlobal *metadata = LevelDbQueryCache::ReadMetadata(_db.get());
     XCTAssertNotNil(metadata, @"Metadata should have been added");
     XCTAssertEqual(metadata.targetCount, 0);
   }
@@ -215,7 +211,7 @@ using SchemaVersion = LevelDbMigrations::SchemaVersion;
     LevelDbTransaction transaction(_db.get(), "Setup");
 
     // Set up target global
-    FSTPBTargetGlobal *metadata = [FSTLevelDBQueryCache readTargetMetadataFromDB:_db.get()];
+    FSTPBTargetGlobal *metadata = LevelDbQueryCache::ReadMetadata(_db.get());
     // Expect that documents missing a row will get the new number
     metadata.highestListenSequenceNumber = new_sequence_number;
     transaction.Put(LevelDbTargetGlobalKey::Key(), metadata);
@@ -340,7 +336,6 @@ using SchemaVersion = LevelDbMigrations::SchemaVersion;
     // Verify
     std::string buffer;
     LevelDbTransaction transaction(_db.get(), "Verify");
-    auto it = transaction.NewIterator();
     // verify that we deleted the correct batches
     XCTAssertTrue(transaction.Get(LevelDbMutationKey::Key("foo", 1), &buffer).IsNotFound());
     XCTAssertTrue(transaction.Get(LevelDbMutationKey::Key("foo", 2), &buffer).IsNotFound());
@@ -364,6 +359,79 @@ using SchemaVersion = LevelDbMigrations::SchemaVersion;
     XCTAssertTrue(
         transaction.Get(LevelDbDocumentMutationKey::Key("bar", testWritePending, 4), &buffer).ok());
   }
+}
+
+- (void)testCreateCollectionParentsIndex {
+  // This test creates a database with schema version 5 that has a few
+  // mutations and a few remote documents and then ensures that appropriate
+  // entries are written to the collectionParentIndex.
+  std::vector<std::string> write_paths{"cg1/x", "cg1/y", "cg1/x/cg1/x", "cg2/x", "cg1/x/cg2/x"};
+  std::vector<std::string> remote_doc_paths{"cg1/z", "cg1/y/cg1/x", "cg2/x/cg3/x",
+                                            "blah/x/blah/x/cg3/x"};
+  std::map<std::string, std::vector<std::string>> expected_parents{
+      {"cg1", {"", "cg1/x", "cg1/y"}}, {"cg2", {"", "cg1/x"}}, {"cg3", {"blah/x/blah/x", "cg2/x"}}};
+
+  std::string empty_buffer;
+  LevelDbMigrations::RunMigrations(_db.get(), 5);
+  {
+    LevelDbTransaction transaction(_db.get(), "Write Mutations and Remote Documents");
+    // Write mutations.
+    for (auto write_path : write_paths) {
+      // We "cheat" and only write the DbDocumentMutation index entries, since
+      // that's all the migration uses.
+      DocumentKey key = DocumentKey::FromPathString(write_path);
+      transaction.Put(LevelDbDocumentMutationKey::Key("dummy-uid", key, /*dummy batchId=*/123),
+                      empty_buffer);
+    }
+
+    // Write remote document entries.
+    for (auto remote_doc_path : remote_doc_paths) {
+      DocumentKey key = DocumentKey::FromPathString(remote_doc_path);
+      transaction.Put(LevelDbRemoteDocumentKey::Key(key), empty_buffer);
+    }
+
+    transaction.Commit();
+  }
+
+  // Migrate to v6 and verify index entries.
+  LevelDbMigrations::RunMigrations(_db.get(), 6);
+  {
+    LevelDbTransaction transaction(_db.get(), "Verify");
+
+    std::map<std::string, std::vector<std::string>> actual_parents;
+    auto index_iterator = transaction.NewIterator();
+    std::string index_prefix = LevelDbCollectionParentKey::KeyPrefix();
+    LevelDbCollectionParentKey row_key;
+    for (index_iterator->Seek(index_prefix); index_iterator->Valid(); index_iterator->Next()) {
+      if (!absl::StartsWith(index_iterator->key(), index_prefix) ||
+          !row_key.Decode(index_iterator->key()))
+        break;
+
+      std::vector<std::string> &parents = actual_parents[row_key.collection_id()];
+      parents.push_back(row_key.parent().CanonicalString());
+    }
+
+    XCTAssertEqual(actual_parents, expected_parents);
+  }
+}
+
+- (void)testCanDowngrade {
+  // First, run all of the migrations
+  LevelDbMigrations::RunMigrations(_db.get());
+
+  LevelDbMigrations::SchemaVersion latestVersion = LevelDbMigrations::ReadSchemaVersion(_db.get());
+
+  // Downgrade to an early version.
+  LevelDbMigrations::SchemaVersion downgradeVersion = 1;
+  LevelDbMigrations::RunMigrations(_db.get(), downgradeVersion);
+  LevelDbMigrations::SchemaVersion postDowngradeVersion =
+      LevelDbMigrations::ReadSchemaVersion(_db.get());
+  XCTAssertEqual(downgradeVersion, postDowngradeVersion);
+
+  // Verify that we can upgrade again to the latest version.
+  LevelDbMigrations::RunMigrations(_db.get());
+  LevelDbMigrations::SchemaVersion finalVersion = LevelDbMigrations::ReadSchemaVersion(_db.get());
+  XCTAssertEqual(finalVersion, latestVersion);
 }
 
 /**

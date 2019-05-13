@@ -24,13 +24,33 @@ include(CMakeParseArguments)
 # Defines a new library target with the given target name, sources, and
 # dependencies.
 function(cc_library name)
-  set(flag EXCLUDE_FROM_ALL)
+  set(flag EXCLUDE_FROM_ALL HEADER_ONLY)
   set(multi DEPENDS SOURCES)
   cmake_parse_arguments(ccl "${flag}" "" "${multi}" ${ARGN})
 
+  if(ccl_HEADER_ONLY)
+    set(__empty_header_only_file "${CMAKE_CURRENT_BINARY_DIR}/${name}_header_only_empty.cc")
+
+    if(NOT EXISTS ${__empty_header_only_file})
+      file(WRITE ${__empty_header_only_file}
+        "// Generated file that keeps header-only CMake libraries happy.
+
+        namespace firebase {
+
+        // single meaningless symbol
+        void ${name}_header_only_fakesym() {}
+
+        }  // namespace firebase
+        "
+      )
+    endif()
+
+    list(APPEND ccl_SOURCES ${__empty_header_only_file})
+  endif()
+
   maybe_remove_objc_sources(sources ${ccl_SOURCES})
   add_library(${name} ${sources})
-  add_objc_flags(${name} ccl)
+  add_objc_flags(${name} ${ccl_SOURCES})
   target_include_directories(
     ${name}
     PUBLIC
@@ -107,11 +127,10 @@ function(cc_binary name)
 
   maybe_remove_objc_sources(sources ${ccb_SOURCES})
   add_executable(${name} ${sources})
-  add_objc_flags(${name} ccb)
-  add_test(${name} ${name})
+  add_objc_flags(${name} ${ccb_SOURCES})
 
-  target_include_directories(${name} PUBLIC ${FIREBASE_SOURCE_DIR})
-  target_link_libraries(${name} ${ccb_DEPENDS})
+  target_include_directories(${name} PRIVATE ${FIREBASE_SOURCE_DIR})
+  target_link_libraries(${name} PRIVATE ${ccb_DEPENDS})
 
   if(ccb_EXCLUDE_FROM_ALL)
     set_property(
@@ -137,11 +156,11 @@ function(cc_test name)
 
   maybe_remove_objc_sources(sources ${cct_SOURCES})
   add_executable(${name} ${sources})
-  add_objc_flags(${name} cct)
+  add_objc_flags(${name} ${cct_SOURCES})
   add_test(${name} ${name})
 
-  target_include_directories(${name} PUBLIC ${FIREBASE_SOURCE_DIR})
-  target_link_libraries(${name} ${cct_DEPENDS})
+  target_include_directories(${name} PRIVATE ${FIREBASE_SOURCE_DIR})
+  target_link_libraries(${name} PRIVATE ${cct_DEPENDS})
 endfunction()
 
 # cc_fuzz_test(
@@ -230,6 +249,12 @@ function(add_objc_flags target)
       ${target}
       PRIVATE
       ${OBJC_FLAGS}
+    )
+
+    target_link_libraries(
+      ${target}
+      PRIVATE
+      "-framework Foundation"
     )
   endif()
 endfunction()

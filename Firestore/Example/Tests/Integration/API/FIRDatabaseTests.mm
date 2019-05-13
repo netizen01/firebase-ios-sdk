@@ -33,13 +33,11 @@ using firebase::firestore::util::TimerId;
 - (void)testCanUpdateAnExistingDocument {
   FIRDocumentReference *doc = [self.db documentWithPath:@"rooms/eros"];
   NSDictionary<NSString *, id> *initialData =
-      @{@"desc" : @"Description",
-        @"owner" : @{@"name" : @"Jonny", @"email" : @"abc@xyz.com"}};
+      @{@"desc" : @"Description", @"owner" : @{@"name" : @"Jonny", @"email" : @"abc@xyz.com"}};
   NSDictionary<NSString *, id> *updateData =
       @{@"desc" : @"NewDescription", @"owner.email" : @"new@xyz.com"};
   NSDictionary<NSString *, id> *finalData =
-      @{@"desc" : @"NewDescription",
-        @"owner" : @{@"name" : @"Jonny", @"email" : @"new@xyz.com"}};
+      @{@"desc" : @"NewDescription", @"owner" : @{@"name" : @"Jonny", @"email" : @"new@xyz.com"}};
 
   [self writeDocumentRef:doc data:initialData];
 
@@ -62,8 +60,8 @@ using firebase::firestore::util::TimerId;
     [self writeDocumentRef:writerRef data:@{@"a" : @"a"}];
     [self updateDocumentRef:readerRef data:@{@"b" : @"b"}];
 
-    FIRDocumentSnapshot *writerSnap =
-        [self readDocumentForRef:writerRef source:FIRFirestoreSourceCache];
+    FIRDocumentSnapshot *writerSnap = [self readDocumentForRef:writerRef
+                                                        source:FIRFirestoreSourceCache];
     XCTAssertTrue(writerSnap.exists);
 
     XCTestExpectation *expectation =
@@ -85,13 +83,11 @@ using firebase::firestore::util::TimerId;
 - (void)testCanDeleteAFieldWithAnUpdate {
   FIRDocumentReference *doc = [self.db documentWithPath:@"rooms/eros"];
   NSDictionary<NSString *, id> *initialData =
-      @{@"desc" : @"Description",
-        @"owner" : @{@"name" : @"Jonny", @"email" : @"abc@xyz.com"}};
+      @{@"desc" : @"Description", @"owner" : @{@"name" : @"Jonny", @"email" : @"abc@xyz.com"}};
   NSDictionary<NSString *, id> *updateData =
       @{@"owner.email" : [FIRFieldValue fieldValueForDelete]};
   NSDictionary<NSString *, id> *finalData =
-      @{@"desc" : @"Description",
-        @"owner" : @{@"name" : @"Jonny"}};
+      @{@"desc" : @"Description", @"owner" : @{@"name" : @"Jonny"}};
 
   [self writeDocumentRef:doc data:initialData];
   [self updateDocumentRef:doc data:updateData];
@@ -139,8 +135,7 @@ using firebase::firestore::util::TimerId;
   FIRDocumentReference *doc = [[self.db collectionWithPath:@"rooms"] documentWithAutoID];
 
   NSDictionary<NSString *, id> *initialData =
-      @{@"desc" : @"Description",
-        @"owner" : @{@"name" : @"Jonny", @"email" : @"abc@xyz.com"}};
+      @{@"desc" : @"Description", @"owner" : @{@"name" : @"Jonny", @"email" : @"abc@xyz.com"}};
   NSDictionary<NSString *, id> *udpateData = @{@"desc" : @"NewDescription"};
 
   [self writeDocumentRef:doc data:initialData];
@@ -151,14 +146,14 @@ using firebase::firestore::util::TimerId;
 }
 
 - (void)testCanMergeDataWithAnExistingDocumentUsingSet {
+  if ([FSTIntegrationTestCase isRunningAgainstEmulator]) return;  // b/112104025
+
   FIRDocumentReference *doc = [[self.db collectionWithPath:@"rooms"] documentWithAutoID];
 
   NSDictionary<NSString *, id> *initialData =
-      @{@"desc" : @"Description",
-        @"owner.data" : @{@"name" : @"Jonny", @"email" : @"abc@xyz.com"}};
+      @{@"desc" : @"Description", @"owner.data" : @{@"name" : @"Jonny", @"email" : @"abc@xyz.com"}};
   NSDictionary<NSString *, id> *mergeData =
-      @{@"updated" : @YES,
-        @"owner.data" : @{@"name" : @"Sebastian"}};
+      @{@"updated" : @YES, @"owner.data" : @{@"name" : @"Sebastian"}};
   NSDictionary<NSString *, id> *finalData = @{
     @"desc" : @"Description",
     @"updated" : @YES,
@@ -243,9 +238,7 @@ using firebase::firestore::util::TimerId;
   FIRDocumentReference *doc = [[self.db collectionWithPath:@"rooms"] documentWithAutoID];
 
   NSDictionary<NSString *, id> *initialData =
-      @{@"untouched" : @YES,
-        @"foo" : @"bar",
-        @"nested" : @{@"untouched" : @YES, @"foo" : @"bar"}};
+      @{@"untouched" : @YES, @"foo" : @"bar", @"nested" : @{@"untouched" : @YES, @"foo" : @"bar"}};
   NSDictionary<NSString *, id> *mergeData = @{
     @"foo" : [FIRFieldValue fieldValueForDelete],
     @"nested" : @{@"foo" : [FIRFieldValue fieldValueForDelete]}
@@ -290,9 +283,7 @@ using firebase::firestore::util::TimerId;
     }
   };
   NSDictionary<NSString *, id> *finalData =
-      @{@"untouched" : @YES,
-        @"inner" : @{},
-        @"nested" : @{@"untouched" : @YES}};
+      @{@"untouched" : @YES, @"inner" : @{}, @"nested" : @{@"untouched" : @YES}};
 
   [self writeDocumentRef:doc data:initialData];
 
@@ -316,9 +307,7 @@ using firebase::firestore::util::TimerId;
   FIRDocumentReference *doc = [[self.db collectionWithPath:@"rooms"] documentWithAutoID];
 
   NSDictionary<NSString *, id> *initialData =
-      @{@"untouched" : @YES,
-        @"foo" : @"bar",
-        @"nested" : @{@"untouched" : @YES, @"foo" : @"bar"}};
+      @{@"untouched" : @YES, @"foo" : @"bar", @"nested" : @{@"untouched" : @YES, @"foo" : @"bar"}};
   NSDictionary<NSString *, id> *mergeData = @{
     @"foo" : [FIRFieldValue fieldValueForServerTimestamp],
     @"inner" : @{@"foo" : [FIRFieldValue fieldValueForServerTimestamp]},
@@ -356,9 +345,7 @@ using firebase::firestore::util::TimerId;
     @"mapInArray" : @[ @{@"data" : @"old"} ]
   };
   NSDictionary<NSString *, id> *mergeData =
-      @{@"data" : @"new",
-        @"topLevel" : @[ @"new" ],
-        @"mapInArray" : @[ @{@"data" : @"new"} ]};
+      @{@"data" : @"new", @"topLevel" : @[ @"new" ], @"mapInArray" : @[ @{@"data" : @"new"} ]};
   NSDictionary<NSString *, id> *finalData = @{
     @"untouched" : @YES,
     @"data" : @"new",
@@ -396,8 +383,7 @@ using firebase::firestore::util::TimerId;
   FIRDocumentReference *doc = [[self.db collectionWithPath:@"rooms"] documentWithAutoID];
 
   NSDictionary<NSString *, id> *initialData =
-      @{@"desc" : @"Description",
-        @"owner" : @{@"name" : @"Jonny", @"email" : @"abc@xyz.com"}};
+      @{@"desc" : @"Description", @"owner" : @{@"name" : @"Jonny", @"email" : @"abc@xyz.com"}};
 
   NSDictionary<NSString *, id> *finalData = @{@"desc" : @"Description", @"owner" : @"Sebastian"};
 
@@ -423,8 +409,7 @@ using firebase::firestore::util::TimerId;
   FIRDocumentReference *doc = [[self.db collectionWithPath:@"rooms"] documentWithAutoID];
 
   NSDictionary<NSString *, id> *initialData =
-      @{@"desc" : @"Description",
-        @"owner" : @{@"name" : @"Jonny", @"email" : @"abc@xyz.com"}};
+      @{@"desc" : @"Description", @"owner" : @{@"name" : @"Jonny", @"email" : @"abc@xyz.com"}};
 
   NSDictionary<NSString *, id> *finalData = @{@"desc" : @"Description", @"owner" : @"Sebastian"};
 
@@ -450,8 +435,7 @@ using firebase::firestore::util::TimerId;
   FIRDocumentReference *doc = [[self.db collectionWithPath:@"rooms"] documentWithAutoID];
 
   NSDictionary<NSString *, id> *initialData =
-      @{@"desc" : @"Description",
-        @"owner" : @{@"name" : @"Jonny", @"email" : @"abc@xyz.com"}};
+      @{@"desc" : @"Description", @"owner" : @{@"name" : @"Jonny", @"email" : @"abc@xyz.com"}};
 
   NSDictionary<NSString *, id> *finalData = @{@"desc" : @"Description", @"owner" : @"Sebastian"};
 
@@ -477,8 +461,7 @@ using firebase::firestore::util::TimerId;
   FIRDocumentReference *doc = [[self.db collectionWithPath:@"rooms"] documentWithAutoID];
 
   NSDictionary<NSString *, id> *initialData =
-      @{@"desc" : @"Description",
-        @"owner" : @{@"name" : @"Jonny", @"email" : @"abc@xyz.com"}};
+      @{@"desc" : @"Description", @"owner" : @{@"name" : @"Jonny", @"email" : @"abc@xyz.com"}};
 
   NSDictionary<NSString *, id> *finalData = initialData;
 
@@ -504,12 +487,10 @@ using firebase::firestore::util::TimerId;
   FIRDocumentReference *doc = [[self.db collectionWithPath:@"rooms"] documentWithAutoID];
 
   NSDictionary<NSString *, id> *initialData =
-      @{@"desc" : @"Description",
-        @"owner" : @{@"name" : @"Jonny", @"email" : @"abc@xyz.com"}};
+      @{@"desc" : @"Description", @"owner" : @{@"name" : @"Jonny", @"email" : @"abc@xyz.com"}};
 
   NSDictionary<NSString *, id> *finalData =
-      @{@"desc" : @"Description",
-        @"owner" : @{@"name" : @"Sebastian", @"email" : @"new@xyz.com"}};
+      @{@"desc" : @"Description", @"owner" : @{@"name" : @"Sebastian", @"email" : @"new@xyz.com"}};
 
   [self writeDocumentRef:doc data:initialData];
 
@@ -521,10 +502,10 @@ using firebase::firestore::util::TimerId;
     @"owner" : @{@"name" : @"Sebastian", @"email" : @"new@xyz.com"}
   }
       mergeFields:@[ @"owner.name", @"owner", @"owner" ]
-      completion:^(NSError *error) {
-        XCTAssertNil(error);
-        [completed fulfill];
-      }];
+       completion:^(NSError *error) {
+         XCTAssertNil(error);
+         [completed fulfill];
+       }];
 
   [self awaitExpectations];
 
@@ -594,7 +575,7 @@ using firebase::firestore::util::TimerId;
           XCTAssertFalse(doc.exists);
           [snapshotCompletion fulfill];
 
-        } else if (callbacks == 2) {
+        } else {
           XCTFail("Should not have received this callback");
         }
       }];
@@ -625,7 +606,7 @@ using firebase::firestore::util::TimerId;
           XCTAssertEqual(doc.metadata.hasPendingWrites, YES);
           [dataCompletion fulfill];
 
-        } else if (callbacks == 3) {
+        } else {
           XCTFail("Should not have received this callback");
         }
       }];
@@ -666,7 +647,7 @@ using firebase::firestore::util::TimerId;
                                                XCTAssertEqual(doc.metadata.hasPendingWrites, NO);
                                                [dataCompletion fulfill];
 
-                                             } else if (callbacks == 4) {
+                                             } else {
                                                XCTFail("Should not have received this callback");
                                              }
                                            }];
@@ -706,7 +687,7 @@ using firebase::firestore::util::TimerId;
           XCTAssertEqual(doc.metadata.hasPendingWrites, YES);
           [changeCompletion fulfill];
 
-        } else if (callbacks == 3) {
+        } else {
           XCTFail("Should not have received this callback");
         }
       }];
@@ -760,7 +741,7 @@ using firebase::firestore::util::TimerId;
                                                XCTAssertEqual(doc.metadata.isFromCache, NO);
                                                [changeCompletion fulfill];
 
-                                             } else if (callbacks == 5) {
+                                             } else {
                                                XCTFail("Should not have received this callback");
                                              }
                                            }];
@@ -799,7 +780,7 @@ using firebase::firestore::util::TimerId;
           XCTAssertFalse(doc.exists);
           [changeCompletion fulfill];
 
-        } else if (callbacks == 3) {
+        } else {
           XCTFail("Should not have received this callback");
         }
       }];
@@ -847,7 +828,7 @@ using firebase::firestore::util::TimerId;
                                                XCTAssertEqual(doc.metadata.isFromCache, NO);
                                                [changeCompletion fulfill];
 
-                                             } else if (callbacks == 4) {
+                                             } else {
                                                XCTFail("Should not have received this callback");
                                              }
                                            }];
@@ -886,7 +867,7 @@ using firebase::firestore::util::TimerId;
           XCTAssertEqual(docSet.documents[0].metadata.hasPendingWrites, YES);
           [changeCompletion fulfill];
 
-        } else if (callbacks == 3) {
+        } else {
           XCTFail("Should not have received a third callback");
         }
       }];
@@ -929,7 +910,7 @@ using firebase::firestore::util::TimerId;
           XCTAssertEqual(docSet.documents[0].metadata.hasPendingWrites, YES);
           [changeCompletion fulfill];
 
-        } else if (callbacks == 3) {
+        } else {
           XCTFail("Should not have received a third callback");
         }
       }];
@@ -969,7 +950,7 @@ using firebase::firestore::util::TimerId;
           XCTAssertEqual(docSet.count, 0);
           [changeCompletion fulfill];
 
-        } else if (callbacks == 4) {
+        } else {
           XCTFail("Should not have received a third callback");
         }
       }];
@@ -1057,11 +1038,14 @@ using firebase::firestore::util::TimerId;
 }
 
 - (void)testUpdateFieldsWithDots {
+  if ([FSTIntegrationTestCase isRunningAgainstEmulator]) return;  // b/112104025
+
   FIRDocumentReference *doc = [self documentRef];
 
   [self writeDocumentRef:doc data:@{@"a.b" : @"old", @"c.d" : @"old"}];
 
-  [self updateDocumentRef:doc data:@{[[FIRFieldPath alloc] initWithFields:@[ @"a.b" ]] : @"new"}];
+  [self updateDocumentRef:doc
+                     data:@{(id)[[FIRFieldPath alloc] initWithFields:@[ @"a.b" ]] : @"new"}];
 
   XCTestExpectation *expectation = [self expectationWithDescription:@"testUpdateFieldsWithDots"];
 
@@ -1086,8 +1070,8 @@ using firebase::firestore::util::TimerId;
 
   [self updateDocumentRef:doc
                      data:@{
-                       @"a.b" : @"new",
-                       [[FIRFieldPath alloc] initWithFields:@[ @"c", @"d" ]] : @"new"
+                       (id) @"a.b" : @"new",
+                       (id)[[FIRFieldPath alloc] initWithFields:@[ @"c", @"d" ]] : @"new"
                      }];
 
   XCTestExpectation *expectation = [self expectationWithDescription:@"testUpdateNestedFields"];
@@ -1237,6 +1221,23 @@ using firebase::firestore::util::TimerId;
   [firestore
       enableNetworkWithCompletion:[self completionForExpectationWithName:@"Final enable network"]];
   [self awaitExpectations];
+}
+
+- (void)testClientCallsAfterShutdownFail {
+  FIRDocumentReference *doc = [self documentRef];
+  FIRFirestore *firestore = doc.firestore;
+
+  [firestore enableNetworkWithCompletion:[self completionForExpectationWithName:@"Enable network"]];
+  [self awaitExpectations];
+  [firestore shutdownWithCompletion:[self completionForExpectationWithName:@"Shutdown"]];
+  [self awaitExpectations];
+
+  XCTAssertThrowsSpecific(
+      {
+        [firestore disableNetworkWithCompletion:^(NSError *error){
+        }];
+      },
+      NSException, @"The client has already been shutdown.");
 }
 
 @end

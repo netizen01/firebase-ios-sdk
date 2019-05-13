@@ -17,6 +17,7 @@
 #ifndef FIRESTORE_CORE_TEST_FIREBASE_FIRESTORE_TESTUTIL_TESTUTIL_H_
 #define FIRESTORE_CORE_TEST_FIREBASE_FIRESTORE_TESTUTIL_TESTUTIL_H_
 
+#include <algorithm>
 #include <chrono>  // NOLINT(build/c++11)
 #include <cstdint>
 #include <memory>
@@ -35,6 +36,7 @@
 #include "Firestore/core/src/firebase/firestore/model/no_document.h"
 #include "Firestore/core/src/firebase/firestore/model/resource_path.h"
 #include "Firestore/core/src/firebase/firestore/model/snapshot_version.h"
+#include "Firestore/core/src/firebase/firestore/model/unknown_document.h"
 #include "Firestore/core/src/firebase/firestore/util/hard_assert.h"
 #include "absl/memory/memory.h"
 #include "absl/strings/string_view.h"
@@ -42,6 +44,12 @@
 namespace firebase {
 namespace firestore {
 namespace testutil {
+
+/**
+ * A string sentinel that can be used with PatchMutation() to mark a field for
+ * deletion.
+ */
+constexpr const char* kDeleteSentinel = "<DELETE>";
 
 // Below are convenience methods for creating instances for tests.
 
@@ -69,16 +77,25 @@ inline model::SnapshotVersion Version(int64_t version) {
   return model::SnapshotVersion{Timestamp::FromTimePoint(timepoint)};
 }
 
-inline model::Document Doc(absl::string_view key,
-                           int64_t version = 0,
-                           const model::ObjectValue::Map& data = {},
-                           bool has_local_mutations = false) {
-  return model::Document{model::FieldValue::FromMap(data), Key(key),
-                         Version(version), has_local_mutations};
+inline std::shared_ptr<model::Document> Doc(
+    absl::string_view key,
+    int64_t version = 0,
+    const model::FieldValue::Map& data = model::FieldValue::Map(),
+    model::DocumentState document_state = model::DocumentState::kSynced) {
+  return std::make_shared<model::Document>(model::ObjectValue::FromMap(data),
+                                           Key(key), Version(version),
+                                           document_state);
 }
 
-inline model::NoDocument DeletedDoc(absl::string_view key, int64_t version) {
-  return model::NoDocument{Key(key), Version(version)};
+inline std::shared_ptr<model::NoDocument> DeletedDoc(absl::string_view key,
+                                                     int64_t version) {
+  return std::make_shared<model::NoDocument>(Key(key), Version(version),
+                                             /*has_committed_mutations=*/false);
+}
+
+inline std::shared_ptr<model::UnknownDocument> UnknownDoc(absl::string_view key,
+                                                          int64_t version) {
+  return std::make_shared<model::UnknownDocument>(Key(key), Version(version));
 }
 
 inline core::RelationFilter::Operator OperatorFromString(absl::string_view s) {
@@ -125,10 +142,33 @@ inline core::Query Query(absl::string_view path) {
 }
 
 inline std::unique_ptr<model::SetMutation> SetMutation(
-    absl::string_view path, const model::ObjectValue::Map& values = {}) {
+    absl::string_view path,
+    const model::FieldValue::Map& values = model::FieldValue::Map()) {
   return absl::make_unique<model::SetMutation>(
-      Key(path), model::FieldValue::FromMap(values),
+      Key(path), model::ObjectValue::FromMap(values),
       model::Precondition::None());
+}
+
+std::unique_ptr<model::PatchMutation> PatchMutation(
+    absl::string_view path,
+    const model::FieldValue::Map& values = model::FieldValue::Map(),
+    const std::vector<model::FieldPath>* update_mask = nullptr);
+
+inline std::unique_ptr<model::PatchMutation> PatchMutation(
+    absl::string_view path,
+    const model::FieldValue::Map& values,
+    const std::vector<model::FieldPath>& update_mask) {
+  return PatchMutation(path, values, &update_mask);
+}
+
+inline std::unique_ptr<model::DeleteMutation> DeleteMutation(
+    absl::string_view path) {
+  return absl::make_unique<model::DeleteMutation>(Key(path),
+                                                  model::Precondition::None());
+}
+
+inline model::MutationResult MutationResult(int64_t version) {
+  return model::MutationResult(Version(version), nullptr);
 }
 
 inline std::vector<uint8_t> ResumeToken(int64_t snapshot_version) {
@@ -145,9 +185,36 @@ inline std::vector<uint8_t> ResumeToken(int64_t snapshot_version) {
   return {snapshot_string.begin(), snapshot_string.end()};
 }
 
-// Add a non-inline function to make this library buildable.
-// TODO(zxu123): remove once there is non-inline function.
-void dummy();
+// Degenerate case to end recursion of `MoveIntoVector`.
+template <typename T>
+void MoveIntoVector(std::vector<std::unique_ptr<T>>*) {
+}
+
+template <typename T, typename Head, typename... Tail>
+void MoveIntoVector(std::vector<std::unique_ptr<T>>* result,
+                    Head head,
+                    Tail... tail) {
+  result->push_back(std::move(head));
+  MoveIntoVector(result, std::move(tail)...);
+}
+
+// Works around the fact that move-only types (in this case, `unique_ptr`) don't
+// work with `initialzer_list`. Desired (doesn't work):
+//
+//   std::unique_ptr<int> x, y;
+//   std::vector<std::unique_ptr>> foo{std::move(x), std::move(y)};
+//
+// Actual:
+//
+//   std::unique_ptr<int> x, y;
+//   std::vector<std::unique_ptr<int>> foo = Changes(std::move(x),
+//   std::move(y));
+template <typename T, typename... Elems>
+std::vector<std::unique_ptr<T>> VectorOfUniquePtrs(Elems... elems) {
+  std::vector<std::unique_ptr<T>> result;
+  MoveIntoVector<T>(&result, std::move(elems)...);
+  return result;
+}
 
 }  // namespace testutil
 }  // namespace firestore

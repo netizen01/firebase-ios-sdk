@@ -1,3 +1,22 @@
+# v4.0
+- FirebaseAnalytics is no longer a hard dependency in the DynamicLinks pod. If you were installing Dynamic Links via pod ''Firebase/DynamicLinks'', you should add 'pod 'Firebase/Analytics'' to the Podfile to maintain full Dynamic Links functionality. If you previously have 'pod 'Firebase/Core'' in the Podfile, no change is necessary. (#2738)
+- Remove deprecated API in FDLURLComponents. (#2768)
+
+# v3.4.3
+- Fixed an issue where matchesshortlinkformat was returning true for certain FDL long links.
+
+# v3.4.2
+- Fixes an issue with certain analytics attribution parameters not being recorded on an app install. (#2462)
+
+# v3.4.1
+- Return call validation for sysctlbyname. (#2394)
+
+# v3.4.0
+- Bug fixes and internal SDK changes. (#2238, #2220)
+
+# v3.3.0
+- Introduced a new componentsWithLink:domainURIPrefix: and deprecated the existing componentsWithLink:domain:. (#1962, #2017, #2078, #2097, #2112)
+
 # v3.2.0
 - Delete deprecated source files. (#2038)
 

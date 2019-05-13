@@ -20,7 +20,11 @@
 #import "DynamicLinks/FDLURLComponents/FIRDynamicLinkComponentsKeyProvider.h"
 #import "DynamicLinks/Public/FDLURLComponents.h"
 
+#import "DynamicLinks/Logging/FDLLogging.h"
 #import "DynamicLinks/Utilities/FDLUtilities.h"
+
+// Label exceptions from FDL.
+NSString *const kFirebaseDurableDeepLinkErrorDomain = @"com.firebase.durabledeeplink";
 
 /// The exact behavior of dict[key] = value is unclear when value is nil. This function safely adds
 /// the key-value pair to the dictionary, even when value is nil.
@@ -44,7 +48,6 @@ static NSString *const kFDLUTMMediumKey = @"utm_medium";
 static NSString *const kFDLUTMCampaignKey = @"utm_campaign";
 static NSString *const kFDLUTMTermKey = @"utm_term";
 static NSString *const kFDLUTMContentKey = @"utm_content";
-static NSString *const kFirebaseDurableDeepLinkErrorDomain = @"com.firebase.durabledeeplink";
 
 + (instancetype)parameters {
   return [[self alloc] init];
@@ -448,15 +451,49 @@ static NSString *const kFDLOtherPlatformParametersFallbackURLKey = @"ofl";
 
 @implementation FIRDynamicLinkComponents
 
+#pragma mark Deprecated Initializers.
 + (instancetype)componentsWithLink:(NSURL *)link domain:(NSString *)domain {
   return [[self alloc] initWithLink:link domain:domain];
 }
 
 - (instancetype)initWithLink:(NSURL *)link domain:(NSString *)domain {
+  NSURL *domainURL = [NSURL URLWithString:domain];
+  if (domainURL.scheme) {
+    FDLLog(FDLLogLevelWarning, FDLLogIdentifierSetupWarnHTTPSScheme,
+           @"You have supplied a domain with a scheme. Please enter a domain name without the "
+           @"scheme.");
+  }
+  NSString *domainURIPrefix = [NSString stringWithFormat:@"https://%@", domain];
   self = [super init];
   if (self) {
     _link = link;
-    _domain = [domain copy];
+    _domain = domainURIPrefix;
+  }
+  return self;
+}
+
+#pragma mark Initializers.
++ (instancetype)componentsWithLink:(NSURL *)link domainURIPrefix:(NSString *)domainURIPrefix {
+  return [[self alloc] initWithLink:link domainURIPrefix:domainURIPrefix];
+}
+
+- (instancetype)initWithLink:(NSURL *)link domainURIPrefix:(NSString *)domainURIPrefix {
+  self = [super init];
+  if (self) {
+    _link = link;
+    /// Must be a URL that conforms to RFC 2396.
+    NSURL *domainURIPrefixURL = [NSURL URLWithString:domainURIPrefix];
+    if (!domainURIPrefixURL) {
+      FDLLog(FDLLogLevelError, FDLLogIdentifierSetupInvalidDomainURIPrefix,
+             @"Invalid domainURIPrefix. Please input a valid URL.");
+      return nil;
+    }
+    if (![[domainURIPrefixURL.scheme lowercaseString] isEqualToString:@"https"]) {
+      FDLLog(FDLLogLevelError, FDLLogIdentifierSetupInvalidDomainURIPrefixScheme,
+             @"Invalid domainURIPrefix scheme. Scheme needs to be https");
+      return nil;
+    }
+    _domain = [domainURIPrefix copy];
   }
   return self;
 }
@@ -477,8 +514,9 @@ static NSString *const kFDLOtherPlatformParametersFallbackURLKey = @"ofl";
   }
   NSURLRequest *request = [self shorteningRequestForLongURL:url options:options];
   if (!request) {
-    NSError *error =
-        [NSError errorWithDomain:kFirebaseDurableDeepLinkErrorDomain code:0 userInfo:nil];
+    NSError *error = [NSError errorWithDomain:kFirebaseDurableDeepLinkErrorDomain
+                                         code:0
+                                     userInfo:nil];
     completion(nil, nil, error);
     return;
   }
@@ -593,7 +631,7 @@ static NSString *const kFDLOtherPlatformParametersFallbackURLKey = @"ofl";
   addEntriesFromDictionaryRepresentingConformerToDictionary(_otherPlatformParameters);
 
   NSString *queryString = FIRDLURLQueryStringFromDictionary(queryDictionary);
-  NSString *urlString = [NSString stringWithFormat:@"https://%@/%@", _domain, queryString];
+  NSString *urlString = [NSString stringWithFormat:@"%@/%@", _domain, queryString];
   return [NSURL URLWithString:urlString];
 }
 

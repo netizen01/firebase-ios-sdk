@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name             = 'FirebaseFunctions'
-  s.version          = '2.1.1'
+  s.version          = '2.5.0'
   s.summary          = 'Cloud Functions for Firebase iOS SDK.'
 
   s.description      = <<-DESC
@@ -16,7 +16,8 @@ iOS SDK for Cloud Functions for Firebase.
   }
 
   s.ios.deployment_target = '8.0'
-  s.osx.deployment_target = '10.10'
+  s.osx.deployment_target = '10.11'
+  s.tvos.deployment_target = '10.0'
 
   s.cocoapods_version = '>= 1.4.0'
   s.static_framework = true
@@ -25,10 +26,23 @@ iOS SDK for Cloud Functions for Firebase.
   s.source_files = 'Functions/FirebaseFunctions/**/*'
   s.public_header_files = 'Functions/FirebaseFunctions/Public/*.h'
 
-  s.dependency 'FirebaseCore', '~> 5.0'
+  s.dependency 'FirebaseAuthInterop', '~> 1.0'
+  s.dependency 'FirebaseCore', '~> 6.0'
   s.dependency 'GTMSessionFetcher/Core', '~> 1.1'
 
   s.pod_target_xcconfig = {
-    'GCC_C_LANGUAGE_STANDARD' => 'c99'
+    'GCC_C_LANGUAGE_STANDARD' => 'c99',
+    'GCC_PREPROCESSOR_DEFINITIONS' => 'FIRFunctions_VERSION=' + s.version.to_s
   }
+
+  s.test_spec 'unit' do |unit_tests|
+    unit_tests.source_files = 'Functions/Example/Test*/*.[mh]', 'Example/Shared/FIRAuthInteropFake*'
+  end
+
+  s.test_spec 'integration' do |int_tests|
+    int_tests.source_files = 'Functions/Example/IntegrationTests/*.[mh]',
+                             'Functions/Example/TestUtils/*.[mh]',
+                             'Example/Shared/FIRAuthInteropFake*',
+                             'Functions/Example/GoogleService-Info.plist'
+  end
 end

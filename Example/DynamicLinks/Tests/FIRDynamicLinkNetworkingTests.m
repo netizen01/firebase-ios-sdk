@@ -16,7 +16,7 @@
 
 #import <XCTest/XCTest.h>
 
-#import "OCMock.h"
+#import <OCMock/OCMock.h>
 
 #import <GoogleUtilities/GULSwizzler.h>
 #import "DynamicLinks/FIRDynamicLinkNetworking+Private.h"
@@ -86,6 +86,7 @@ static const NSTimeInterval kAsyncTestTimout = 0.5;
   XCTestExpectation *expectation = [self expectationWithDescription:@"completion called"];
 
   [self.service resolveShortLink:url
+                   FDLSDKVersion:@"1.0.0"
                       completion:^(NSURL *_Nullable url, NSError *_Nullable error) {
                         [expectation fulfill];
                       }];

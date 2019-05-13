@@ -42,6 +42,7 @@ namespace remote {
 using util::AsyncQueue;
 using util::ByteBufferToString;
 using util::CompletionEndState;
+using util::CompletionResult;
 using util::CreateNoOpConnectivityMonitor;
 using util::ExecutorStd;
 using util::GetFirestoreErrorCodeName;
@@ -50,8 +51,6 @@ using util::GrpcStreamTester;
 using util::MakeByteBuffer;
 using util::Status;
 using util::StringFormat;
-using util::CompletionResult::Error;
-using util::CompletionResult::Ok;
 using Type = GrpcCompletion::Type;
 
 namespace {
@@ -197,18 +196,6 @@ TEST_F(GrpcStreamTest, CanGetResponseHeadersAfterFinishing) {
   });
 }
 
-// Death tests should contain the word "DeathTest" in their name -- see
-// https://github.com/google/googletest/blob/master/googletest/docs/advanced.md#death-test-naming
-using GrpcStreamDeathTest = GrpcStreamTest;
-
-TEST_F(GrpcStreamDeathTest, CannotRestart) {
-  worker_queue.EnqueueBlocking([&] { stream->Start(); });
-  KeepPollingGrpcQueue();
-  worker_queue.EnqueueBlocking([&] { stream->FinishImmediately(); });
-  worker_queue.EnqueueBlocking(
-      [&] { EXPECT_DEATH_IF_SUPPORTED(stream->Start(), ""); });
-}
-
 // Read and write
 
 TEST_F(GrpcStreamTest, ReadIsAutomaticallyReadded) {
@@ -270,7 +257,7 @@ TEST_F(GrpcStreamTest, ObserverReceivesOnStart) {
 TEST_F(GrpcStreamTest, ObserverReceivesOnError) {
   worker_queue.EnqueueBlocking([&] { stream->Start(); });
 
-  ForceFinish({{Type::Read, Error},
+  ForceFinish({{Type::Read, CompletionResult::Error},
                {Type::Finish, grpc::Status{grpc::RESOURCE_EXHAUSTED, ""}}});
 
   EXPECT_EQ(observed_states(),
@@ -426,9 +413,9 @@ TEST_F(GrpcStreamTest, ObserverCanImmediatelyDestroyStreamOnError) {
 
   worker_queue.EnqueueBlocking([&] { stream->Start(); });
 
-  ForceFinish({{Type::Read, Error}});
+  ForceFinish({{Type::Read, CompletionResult::Error}});
   EXPECT_NE(stream, nullptr);
-  EXPECT_NO_THROW(ForceFinish({{Type::Finish, Ok}}));
+  EXPECT_NO_THROW(ForceFinish({{Type::Finish, CompletionResult::Ok}}));
   EXPECT_EQ(stream, nullptr);
 }
 
@@ -446,6 +433,54 @@ TEST_F(GrpcStreamTest, ObserverCanImmediatelyDestroyStreamOnFinishAndNotify) {
     EXPECT_NO_THROW(stream->FinishAndNotify(util::Status::OK()));
     EXPECT_EQ(stream, nullptr);
   });
+}
+
+// Double finish
+
+TEST_F(GrpcStreamTest, DoubleFinish_FailThenFinishImmediately) {
+  worker_queue.EnqueueBlocking([&] { stream->Start(); });
+
+  ForceFinish({{Type::Read, CompletionResult::Error}});
+  KeepPollingGrpcQueue();
+  worker_queue.EnqueueBlocking(
+      [&] { EXPECT_NO_THROW(stream->FinishImmediately()); });
+}
+
+TEST_F(GrpcStreamTest, DoubleFinish_FailThenWriteAndFinish) {
+  worker_queue.EnqueueBlocking([&] { stream->Start(); });
+
+  ForceFinish({{Type::Read, CompletionResult::Error}});
+  KeepPollingGrpcQueue();
+  worker_queue.EnqueueBlocking(
+      [&] { EXPECT_NO_THROW(stream->WriteAndFinish({})); });
+}
+
+TEST_F(GrpcStreamTest, DoubleFinish_FailThenFailAgain) {
+  worker_queue.EnqueueBlocking([&] {
+    stream->Start();
+    stream->Write({});
+  });
+
+  int failures_count = 0;
+  auto future = tester.ForceFinishAsync([&](GrpcCompletion* completion) {
+    switch (completion->type()) {
+      case Type::Read:
+      case Type::Write:
+        ++failures_count;
+        completion->Complete(false);
+        return failures_count == 2;
+      default:
+        UnexpectedType(completion);
+        return true;
+    }
+  });
+  future.wait();
+  worker_queue.EnqueueBlocking([] {});
+
+  // Normally, "Finish" never fails, but for the test it's easier to abuse the
+  // finish operation that has already been enqueued by `OnOperationFailed`
+  // rather than adding a new operation.
+  ForceFinish({{Type::Finish, CompletionResult::Error}});
 }
 
 }  // namespace remote

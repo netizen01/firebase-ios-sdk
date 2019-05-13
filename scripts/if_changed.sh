@@ -45,25 +45,55 @@ elif [[ -z "$TRAVIS_COMMIT_RANGE" ]]; then
 
 else
   case "$PROJECT-$METHOD" in
-    Firebase-*)
-      check_changes '^(Firebase/Auth|Firebase/Core|Firebase/Database|Firebase/DynamicLinks|'\
-'Firebase/Messaging|Firebase/Storage|Functions|GoogleUtilities|Interop|Example|'\
+    Firebase-pod-lib-lint) # Combines Firebase-* and InAppMessaging*
+      check_changes '^(Firebase/Auth|Firebase/Database|Firebase/DynamicLinks|'\
+'Firebase/Messaging|Firebase/Storage|GoogleUtilities|Interop|Example|'\
 'FirebaseAnalyticsIntop.podspec|FirebaseAuth.podspec|FirebaseAuthInterop.podspec|'\
-'FirebaseCore.podspec|FirebaseDatabase.podspec|FirebaseDynamicLinks.podspec|'\
-'FirebaseFunctions.podspec|FirebaseMessaging.podspec|FirebaseStorage.podspec|'\
-'FirebaseStorage.podspec)'
+'FirebaseDatabase.podspec|FirebaseDynamicLinks.podspec|'\
+'FirebaseMessaging.podspec|FirebaseStorage.podspec|'\
+'FirebaseStorage.podspec|Firebase/InAppMessagingDisplay|InAppMessagingDisplay|'\
+'InAppMessaging|Firebase/InAppMessaging|'\
+'FirebaseInAppMessaging.podspec|FirebaseInAppMessagingDisplay.podspec|'\
+'Firebase/InstanceID|FirebaseInstanceID.podspec)'
       ;;
 
-    InAppMessagingDisplay-*)
-      check_changes '^(Firebase/InAppMessagingDisplay|InAppMessagingDisplay)'
+    Firebase-*)
+      check_changes '^(Firebase/Auth|Firebase/Core|Firebase/Database|Firebase/DynamicLinks|'\
+'Firebase/Messaging|Firebase/Storage|GoogleUtilities|Interop|Example|'\
+'FirebaseAnalyticsIntop.podspec|FirebaseAuth.podspec|FirebaseAuthInterop.podspec|'\
+'FirebaseCore.podspec|FirebaseDatabase.podspec|FirebaseDynamicLinks.podspec|'\
+'FirebaseMessaging.podspec|FirebaseStorage.podspec|'\
+'FirebaseStorage.podspec|Firebase/InstanceID|FirebaseInstanceID.podspec)'
+      ;;
+
+    Core-*)
+      check_changes '^(Firebase/Core|GoogleUtilities|FirebaseCore.podspec)'
+      ;;
+
+    Functions-*)
+      check_changes '^(Firebase/Core|Functions|GoogleUtilities|FirebaseFunctions.podspec)'
+      ;;
+
+    InAppMessaging-*)
+      check_changes '^(Firebase/InAppMessagingDisplay|InAppMessagingDisplay|InAppMessaging|'\
+'Firebase/InAppMessaging)'
       ;;
 
     Firestore-xcodebuild|Firestore-pod-lib-lint)
-      check_changes '^(Firestore|FirebaseFirestore.podspec|FirebaseFirestoreSwift.podspec)'
+      check_changes '^(Firestore|FirebaseFirestore.podspec|FirebaseFirestoreSwift.podspec|'\
+'GoogleUtilities)'
       ;;
 
     Firestore-cmake)
-      check_changes '^(Firestore/(core|third_party)|cmake)'
+      check_changes '^(Firestore/(core|third_party)|cmake|GoogleUtilities)'
+      ;;
+
+    GoogleDataTransport-*)
+      check_changes '^(GoogleDataTransport|GoogleDataTransport.podspec)'
+      ;;
+
+    GoogleDataTransportCCTSupport-*)
+      check_changes '^(GoogleDataTransportCCTSupport|GoogleDataTransportCCTSupport.podspec|GoogleDataTransport|GoogleDataTransport.podspec)'
       ;;
 
     *)
@@ -78,7 +108,7 @@ fi
 # Always rebuild if Travis configuration and/or build scripts changed.
 check_changes '^.travis.yml'
 check_changes '^Gemfile.lock'
-check_changes '^scripts/(build|if_changed).sh'
+check_changes '^scripts/(build|if_changed|install_prereqs).sh'
 
 if [[ "$run" == true ]]; then
   "$@"

@@ -1,5 +1,75 @@
 # Unreleased
 
+# 1.3.0
+- [feature] You can now query across all collections in your database with a
+  given collection ID using the `Firestore.collectionGroup()` method.
+- [feature] Added community support for tvOS.
+
+# 1.2.1
+- [fixed] Fixed a use-after-free bug that could be observed when using snapshot
+  listeners on temporary document references (#2682).
+
+# 1.2.0
+- [feature] Added community support for macOS (#434).
+- [fixed] Fixed the way gRPC certificates are loaded on macOS (#2604).
+
+# 1.1.0
+- [feature] Added `FieldValue.increment()`, which can be used in
+  `updateData(_:)` and `setData(_:merge:)` to increment or decrement numeric
+  field values safely without transactions.
+- [changed] Improved performance when querying over documents that contain
+  subcollections (#2466).
+- [changed] Prepared the persistence layer to support collection group queries.
+  While this feature is not yet available, all schema changes are included
+  in this release.
+
+# v1.0.2
+- [changed] Internal improvements.
+
+# v1.0.1
+- [changed] Internal improvements.
+
+# v1.0.0
+- [changed] **Breaking change:** The `areTimestampsInSnapshotsEnabled` setting
+  is now enabled by default. Timestamp fields that read from a
+  `FIRDocumentSnapshot` will be returned as `FIRTimestamp` objects instead of
+  `NSDate` objects. Update any code that expects to recive a `NSDate` object.
+  See [the reference
+  documentation](https://firebase.google.com/docs/reference/ios/firebasefirestore/api/reference/Classes/FIRFirestoreSettings#/c:objc(cs)FIRFirestoreSettings(py)timestampsInSnapshotsEnabled)
+  for more details.
+- [changed] **Breaking change:** `FIRTransaction.getDocument()` has been changed
+  to return a non-nil `FIRDocumentSnapshot` with `exists` equal to `false` if
+  the document does not exist (instead of returning a nil
+  `FIRDocumentSnapshot`).  Code that includes `if (snapshot) { ... }` must be
+  changed to `if (snapshot.exists) { ... }`.
+- [fixed] Fixed a crash that could happen when the app is shut down after
+  a write has been sent to the server but before it has been received on
+  a listener (#2237).
+- [changed] Firestore no longer bundles a copy of the gRPC certificates, now
+  that the gRPC-C++ CocoaPod includes them. CocoaPods users should be updated
+  automatically. Carthage users should follow the [updated
+  instructions](https://github.com/firebase/firebase-ios-sdk/blob/master/Carthage.md)
+  to get `gRPCCertificates.bundle` from the correct location.
+
+# v0.16.1
+- [fixed] Offline persistence now properly records schema downgrades. This is a
+  forward-looking change that allows all subsequent versions to safely downgrade
+  to this version. Some other versions might be safe to downgrade to, if you can
+  determine there haven't been any schema migrations between them. For example,
+  downgrading from v0.16.1 to v0.15.0 is safe because there have been no schema
+  changes between these releases.
+- [fixed] Fixed an issue where gRPC would crash if shut down multiple times
+  (#2146).
+
+# v0.16.0
+- [changed] Added a garbage collection process to on-disk persistence that
+  removes older documents. This is enabled by default, and the SDK will attempt
+  to periodically clean up older, unused documents once the on-disk cache passes
+  a threshold size (default: 100 MB). This threshold can be configured by
+  setting `FIRFirestoreSettings.cacheSizeBytes`. It must be set to a minimum of
+  1 MB. The garbage collection process can be disabled entirely by setting
+  `FIRFirestoreSettings.cacheSizeBytes` to `kFIRFirestoreCacheSizeUnlimited`.
+
 # v0.15.0
 - [changed] Changed how the SDK handles locally-updated documents while syncing
   those updates with Cloud Firestore servers. This can lead to slight behavior
